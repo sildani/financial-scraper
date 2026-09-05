@@ -1,0 +1,21 @@
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Credentials & Keys
+.env
+service_account.json
+*.json
+!example_*.json
+
+# Cache & Local Data
+.cache/
+input/
+*.pdf
+*.PDF
+
+# Python Artifacts
+__pycache__/
+*.pyc
+.DS_Store
