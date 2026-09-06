@@ -60,7 +60,7 @@ def main():
             response = get_transactions(access_token, start_date.isoformat(), end_date.isoformat())
             
             accounts = [PlaidAccount(**acc) for acc in response['accounts']]
-            transactions = [PlaidTransaction(**tx) for tx in response['transactions']]
+            transactions = [PlaidTransaction(**tx) for tx in response.get('transactions', [])]
 
             for account in accounts:
                 account_transactions = [tx for tx in transactions if tx.account_id == account.account_id]

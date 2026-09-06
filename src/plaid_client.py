@@ -58,7 +58,7 @@ def get_transactions(access_token, start_date, end_date):
         ),
     )
     response = client.transactions_get(request)
-    return response["transactions"]
+    return response.to_dict()
 
 def save_token(item_id, access_token):
     tokens = load_tokens()
@@ -75,4 +75,3 @@ def load_tokens():
 if __name__ == "__main__":
     print("This script is not meant to be run directly anymore.")
     print("Please use the main.py script with the --plaid-link argument.")
-
