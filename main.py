@@ -3,7 +3,7 @@ import glob
 import argparse
 from datetime import datetime, timedelta
 
-from src.config import INPUT_DIR
+from src.config import INPUT_DIR, PLAID_ENV
 from src.llm import process_statement_pdf
 from src.sheets import export_statements_to_sheet
 from src.plaid_client import create_link_token, exchange_public_token, get_transactions, load_tokens
@@ -32,8 +32,9 @@ def main():
     if args.plaid_link:
         link_token = create_link_token()
         print("\n--- Plaid Link Setup ---")
+        plaid_link_url = f"https://cdn.plaid.com/link/v2/stable/link.html?isWebview=true&token={link_token}" if PLAID_ENV != 'sandbox' else f"https://sandbox.plaid.com/link/v2/stable/link.html?isWebview=true&token={link_token}"
         print(f"1. Open the following URL in your browser to link your account:")
-        print(f"   https://sandbox.plaid.com/link/v2/stable/link.html?isWebview=true&token={link_token}")
+        print(f"   {plaid_link_url}")
         public_token = input("\n2. After linking, paste the generated public_token here and press Enter: ")
         
         if public_token:
