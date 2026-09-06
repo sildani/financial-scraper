@@ -4,6 +4,7 @@ from plaid.api import plaid_api
 from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
 from plaid.model.products import Products
+from plaid.model.link_token_get_request import LinkTokenGetRequest
 from plaid.model.country_code import CountryCode
 from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
 from plaid.model.transactions_get_request import TransactionsGetRequest
@@ -17,7 +18,7 @@ TOKEN_FILE = BASE_DIR / ".plaid_tokens.json"
 
 PLAID_ENV_MAP = {
     'sandbox': plaid.Environment.Sandbox,
-    'development': plaid.Environment.Development,
+    'development': plaid.Environment.Production, # Development uses the Production infrastructure
     'production': plaid.Environment.Production,
 }
 
@@ -41,9 +42,10 @@ def create_link_token():
         products=PLAID_PRODUCTS,
         country_codes=PLAID_COUNTRY_CODES,
         language="en",
+        hosted_link={}
     )
     response = client.link_token_create(request)
-    return response["link_token"]
+    return response["link_token"], response["hosted_link_url"]
 
 def exchange_public_token(public_token):
     client = get_plaid_client()
@@ -62,10 +64,37 @@ def get_transactions(access_token, start_date, end_date):
         end_date=end_date,
         options=TransactionsGetRequestOptions(
             count=500,
+            include_personal_finance_category=True,
         ),
     )
     response = client.transactions_get(request)
     return response.to_dict()
+
+def get_public_token_from_link_session(link_token: str) -> str | None:
+    """
+    Polls the /link/token/get endpoint to see if the Link flow is complete.
+    Returns the public_token if available, otherwise None.
+    """
+    client = get_plaid_client()
+    request = LinkTokenGetRequest(link_token=link_token)
+    try:
+        response = client.link_token_get(request)
+        
+        # The session data is in the top-level `link_sessions` list.
+        if hasattr(response, 'link_sessions') and response.link_sessions:
+            for session in response.link_sessions:
+                # A completed session will have a `results` object.
+                if hasattr(session, 'results') and session.results:
+                    # The results may contain multiple added items.
+                    if hasattr(session.results, 'item_add_results') and session.results.item_add_results:
+                        for item_result in session.results.item_add_results:
+                            if hasattr(item_result, 'public_token') and item_result.public_token:
+                                return item_result.public_token
+    except plaid.ApiException as e:
+        # This can happen if the token is expired or invalid, or if the session is not yet complete.
+        # For polling, it's safe to ignore API exceptions and return None.
+        pass
+    return None
 
 def save_token(item_id, access_token):
     tokens = load_tokens()

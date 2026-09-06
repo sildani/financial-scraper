@@ -2,11 +2,13 @@ import os
 import glob
 import argparse
 from datetime import datetime, timedelta
+import time
+import webbrowser
 
 from src.config import INPUT_DIR, PLAID_ENV
 from src.llm import process_statement_pdf
 from src.sheets import export_statements_to_sheet
-from src.plaid_client import create_link_token, exchange_public_token, get_transactions, load_tokens
+from src.plaid_client import create_link_token, exchange_public_token, get_transactions, load_tokens, get_public_token_from_link_session
 from src.schemas import PlaidTransaction, PlaidAccount
 from src.plaid_transformer import transform_plaid_transactions
 
@@ -30,19 +32,36 @@ def main():
     args = parser.parse_args()
 
     if args.plaid_link:
-        link_token = create_link_token()
+        link_token, hosted_link_url = create_link_token()
         print("\n--- Plaid Link Setup ---")
-        plaid_link_url = f"https://cdn.plaid.com/link/v2/stable/link.html?isWebview=true&token={link_token}" if PLAID_ENV != 'sandbox' else f"https://sandbox.plaid.com/link/v2/stable/link.html?isWebview=true&token={link_token}"
-        print(f"1. Open the following URL in your browser to link your account:")
-        print(f"   {plaid_link_url}")
-        public_token = input("\n2. After linking, paste the generated public_token here and press Enter: ")
+        print(f"1. Your browser will now open to complete the Plaid Link flow.")
+        print(f"   If it doesn't, please open this URL manually:")
+        print(f"   {hosted_link_url}")
+
+        webbrowser.open(hosted_link_url)
+
+        public_token = None
+        POLLING_INTERVAL_S = 2
+        TIMEOUT_S = 300  # 5 minutes
+        start_time = time.time()
+
+        print(f"\n2. Waiting for you to complete the flow in your browser... (this will time out in {int(TIMEOUT_S / 60)} minutes)")
+
+        while time.time() - start_time < TIMEOUT_S:
+            public_token = get_public_token_from_link_session(link_token)
+            if public_token:
+                print("\n✓ Plaid Link flow completed successfully!")
+                break
+            time.sleep(POLLING_INTERVAL_S)
         
-        if public_token:
-            access_token, item_id = exchange_public_token(public_token.strip())
-            print(f"\n✓ Successfully exchanged public token for an access token.")
-            print(f"   - Item ID: {item_id}")
-            print(f"   - Access Token: {access_token}")
-            print("   (This access token has been saved securely for future use.)")
+        if not public_token:
+            print(f"\n✗ Plaid Link flow timed out after {int(TIMEOUT_S / 60)} minutes. Please try again.")
+            return
+
+        access_token, item_id = exchange_public_token(public_token.strip())
+        print(f"\n✓ Successfully exchanged public token for an access token.")
+        print(f"   - Item ID: {item_id}")
+        print("   (This access token has been saved securely for future use.)")
         return
 
     if args.fetch_transactions:
@@ -58,7 +77,7 @@ def main():
         
         for item_id, access_token in tokens.items():
             print(f"\nFetching transactions for Item ID: {item_id}")
-            response = get_transactions(access_token, start_date.isoformat(), end_date.isoformat())
+            response = get_transactions(access_token, start_date, end_date)
             
             accounts = [PlaidAccount(**acc) for acc in response['accounts']]
             transactions = [PlaidTransaction(**tx) for tx in response.get('transactions', [])]

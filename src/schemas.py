@@ -1,6 +1,7 @@
 from decimal import Decimal
 from enum import Enum
 from typing import Optional, List
+from datetime import date
 from pydantic import BaseModel, Field
 
 
@@ -9,6 +10,7 @@ class SpendingCategory(str, Enum):
     RESTAURANTS_FAST_FOOD = "Restaurants & Fast Food"
     CAR_FUEL = "Car Fuel"
     CAR_MAINTENANCE = "Car Maintenance"
+    TRAVEL = "Travel"
     UTILITIES_SUBSCRIPTIONS = "Utilities & Subscriptions"
     PAYMENTS_CREDITS = "Payments & Credits"
     INCOME_DEPOSITS = "Income & Deposits"
@@ -56,12 +58,17 @@ class PlaidTransaction(BaseModel):
     iso_currency_code: str
     category: Optional[List[str]] = None
     category_id: Optional[str] = None
-    date: str
+    date: date
     name: str
     merchant_name: Optional[str] = None
     pending: bool
     transaction_id: str
+    personal_finance_category: Optional['PlaidPersonalFinanceCategory'] = None
     
+class PlaidPersonalFinanceCategory(BaseModel):
+    primary: str
+    detailed: str
+
 class PlaidTransactionsResponse(BaseModel):
     accounts: List[PlaidAccount]
     transactions: List[PlaidTransaction]
