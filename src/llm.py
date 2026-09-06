@@ -1,20 +1,13 @@
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
-import os
-import hashlib
 import json
-from pathlib import Path
-from dotenv import load_dotenv
 from pydantic_ai import Agent, BinaryContent
 from pydantic_ai.models.google import GoogleModel
 
-from schemas import StatementSummary
-
-load_dotenv()
-
-CACHE_DIR = Path(".cache")
-CACHE_DIR.mkdir(exist_ok=True)
+from src.schemas import StatementSummary
+from src.config import CACHE_DIR
+from src.utils import compute_md5
 
 model = GoogleModel('gemini-3.6-flash')
 
@@ -30,14 +23,6 @@ statement_agent = Agent(
         "and assign the most accurate category from the permitted enum list."
     )
 )
-
-def compute_md5(file_path: str) -> str:
-    """Computes MD5 hash of a file to detect changes accurately."""
-    hasher = hashlib.md5()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
 
 def process_statement_pdf(pdf_path: str, force_reprocess: bool = False) -> StatementSummary:
     """Processes PDF using Gemini, caching results by MD5 file hash."""

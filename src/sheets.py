@@ -1,14 +1,9 @@
-import os
 from datetime import datetime, timezone
 from collections import defaultdict
 import gspread
-from dotenv import load_dotenv
-from schemas import StatementSummary
 
-load_dotenv()
-
-SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
-SERVICE_ACCOUNT_FILE = "service_account.json"
+from src.schemas import StatementSummary
+from src.config import SPREADSHEET_ID, SERVICE_ACCOUNT_FILE
 
 
 def get_gspread_client() -> gspread.Client:

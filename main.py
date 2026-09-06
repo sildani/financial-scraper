@@ -1,10 +1,9 @@
 import os
 import glob
 import argparse
-from agent import process_statement_pdf
-from sheets import export_statements_to_sheet
-
-INPUT_DIR = "input"
+from src.config import INPUT_DIR
+from src.llm import process_statement_pdf
+from src.sheets import export_statements_to_sheet
 
 def main():
     parser = argparse.ArgumentParser(description="Financial Statement Scraper & Analyzer")
