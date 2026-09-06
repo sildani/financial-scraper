@@ -19,3 +19,8 @@ SERVICE_ACCOUNT_FILE = BASE_DIR / "service_account.json"
 
 # Gemini
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Plaid
+PLAID_CLIENT_ID = os.getenv("PLAID_CLIENT_ID")
+PLAID_SECRET = os.getenv("PLAID_SECRET")
+PLAID_ENV = os.getenv("PLAID_ENV", "sandbox")

@@ -32,3 +32,37 @@ class StatementSummary(BaseModel):
     payment_due_date: Optional[str] = Field(default=None, description="Due date in YYYY-MM-DD format, if applicable")
     interest_charged: Optional[float] = Field(default=0.0, description="Total interest or fees charged, if applicable")
     transactions: List[LineItem] = Field(description="List of all transactions found in the statement")
+# --- Plaid Models ---
+
+class PlaidAccountBalances(BaseModel):
+    available: Optional[float] = None
+    current: float
+    limit: Optional[float] = None
+    iso_currency_code: str
+    unofficial_currency_code: Optional[str] = None
+
+class PlaidAccount(BaseModel):
+    account_id: str
+    balances: PlaidAccountBalances
+    mask: str
+    name: str
+    official_name: Optional[str] = None
+    type: str
+    subtype: str
+
+class PlaidTransaction(BaseModel):
+    account_id: str
+    amount: float
+    iso_currency_code: str
+    category: Optional[List[str]] = None
+    category_id: Optional[str] = None
+    date: str
+    name: str
+    merchant_name: Optional[str] = None
+    pending: bool
+    transaction_id: str
+    
+class PlaidTransactionsResponse(BaseModel):
+    accounts: List[PlaidAccount]
+    transactions: List[PlaidTransaction]
+    total_transactions: int
