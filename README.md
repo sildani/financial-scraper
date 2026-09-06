@@ -8,6 +8,18 @@ An Agentic AI pipeline built with Python, PydanticAI, and Google Gemini to extra
 - **Local MD5 Caching:** Avoids redundant API calls by caching extracted JSON outputs based on file MD5 checksums.
 - **Google Sheets Integration:** Automatically outputs data across three structured sheets: *Summary*, *Detailed Spending*, and *Aggregated Spend Analysis*.
 
+## Project Structure
+
+- `main.py`: Main entry point for running the batch statement processor.
+- `src/`: Core application package:
+  - `config.py`: Centralized configuration and environment loader.
+  - `llm.py`: PydanticAI / Gemini statement extraction agent.
+  - `schemas.py`: Pydantic models and Category enums.
+  - `sheets.py`: Google Sheets export integration.
+  - `utils.py`: Helper utilities (e.g., MD5 hashing for caching).
+- `scripts/`: Diagnostic and utility scripts (e.g., testing environment, category inspector, etc.).
+- `input/`: Directory where source PDF statements are placed for processing.
+
 ## Setup
 
 1. **Clone the repository:**
