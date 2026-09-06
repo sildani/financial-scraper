@@ -15,9 +15,16 @@ PLAID_PRODUCTS = [Products("transactions")]
 PLAID_COUNTRY_CODES = [CountryCode("US")]
 TOKEN_FILE = BASE_DIR / ".plaid_tokens.json"
 
+PLAID_ENV_MAP = {
+    'sandbox': plaid.Environment.Sandbox,
+    'development': plaid.Environment.Development,
+    'production': plaid.Environment.Production,
+}
+
 def get_plaid_client():
+    host = PLAID_ENV_MAP.get(PLAID_ENV, plaid.Environment.Sandbox)
     configuration = plaid.Configuration(
-        host=plaid.Environment.Sandbox if PLAID_ENV == 'sandbox' else (plaid.Environment.Development if PLAID_ENV == 'development' else plaid.Environment.Production),
+        host=host,
         api_key={
             "clientId": PLAID_CLIENT_ID,
             "secret": PLAID_SECRET,
