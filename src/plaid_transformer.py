@@ -12,7 +12,7 @@ PLAID_CATEGORY_MAPPING = {
     "GENERAL_SERVICES_INSURANCE": SpendingCategory.UTILITIES_SUBSCRIPTIONS,
     "TRANSFER_IN_DEPOSIT": SpendingCategory.INCOME_DEPOSITS,
     "TRANSFER_OUT_ACCOUNT_TRANSFER": SpendingCategory.PAYMENTS_CREDITS,
-    "TRANSFER_OUT_PAYMENT": SpendingCategory.PAYMENTS_CREDENTS,
+    "TRANSFER_OUT_PAYMENT": SpendingCategory.PAYMENTS_CREDITS,
 }
 
 def transform_plaid_transactions(transactions: List[PlaidTransaction], account: PlaidAccount, start_date: str, end_date: str) -> StatementSummary:
