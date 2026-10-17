@@ -8,6 +8,7 @@ env/
 service_account.json
 *.json
 !example_*.json
+!scripts/sandbox_fixtures.json
 
 # Cache & Local Data
 .cache/

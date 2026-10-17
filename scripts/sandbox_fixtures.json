@@ -1,0 +1,88 @@
+{
+  "_comment": "Plaid Sandbox fixture Links for docs/plaid-testing.md. Amounts use Plaid's sign: positive = money out, negative = money in, for every Account kind. days_ago is relative to the seed date; pending transactions post in the future.",
+  "links": {
+    "platypus": {
+      "institution_id": "ins_109508",
+      "institution_name": "First Platypus Bank",
+      "seeded": true,
+      "accounts": [
+        {
+          "type": "depository",
+          "subtype": "checking",
+          "starting_balance": 4200.00,
+          "transactions": [
+            {"days_ago": 20, "amount": -2500.00, "description": "ACME CORP PAYROLL"},
+            {"days_ago": 18, "amount": 85.00, "description": "TRADER JOE'S"},
+            {"days_ago": 15, "amount": 500.00, "description": "PAYMENT TO FIRST GINGHAM CARD"},
+            {"days_ago": 14, "amount": 150.00, "description": "DISCOVER E-PAYMENT"},
+            {"days_ago": 12, "amount": 300.00, "description": "ONLINE TRANSFER TO SAVINGS XX2002"},
+            {"days_ago": 10, "amount": 80.00, "description": "ZELLE PAYMENT TO JOHN DOE"},
+            {"days_ago": 8, "amount": 200.00, "description": "TOYOTA FINANCIAL PAYMENT"},
+            {"days_ago": 1, "amount": 20.00, "description": "SHELL OIL", "pending": true},
+            {"days_ago": 35, "amount": 40.00, "description": "TARGET"}
+          ]
+        },
+        {
+          "type": "depository",
+          "subtype": "savings",
+          "starting_balance": 10300.00,
+          "transactions": [
+            {"days_ago": 12, "amount": -300.00, "description": "ONLINE TRANSFER FROM CHECKING XX1001"}
+          ]
+        },
+        {
+          "type": "depository",
+          "subtype": "savings",
+          "starting_balance": 5000.00,
+          "transactions": []
+        },
+        {
+          "type": "loan",
+          "subtype": "auto",
+          "starting_balance": 9800.00,
+          "transactions": [
+            {"days_ago": 8, "amount": -200.00, "description": "PAYMENT RECEIVED THANK YOU"}
+          ]
+        }
+      ]
+    },
+    "gingham": {
+      "institution_id": "ins_109509",
+      "institution_name": "First Gingham Credit Union",
+      "seeded": true,
+      "accounts": [
+        {
+          "type": "credit",
+          "subtype": "credit card",
+          "starting_balance": 1250.00,
+          "transactions": [
+            {"days_ago": 22, "amount": 60.00, "description": "WHOLE FOODS MARKET"},
+            {"days_ago": 19, "amount": 40.00, "description": "OLIVE GARDEN"},
+            {"days_ago": 17, "amount": 400.00, "description": "DELTA AIR LINES"},
+            {"days_ago": 16, "amount": 5.00, "description": "STARBUCKS"},
+            {"days_ago": 15, "amount": -500.00, "description": "PAYMENT THANK YOU"},
+            {"days_ago": 13, "amount": -25.00, "description": "WHOLE FOODS MARKET REFUND"},
+            {"days_ago": 9, "amount": 12.00, "description": "ZQX HOLDINGS 4471"},
+            {"days_ago": 1, "amount": 15.00, "description": "UBER", "pending": true}
+          ]
+        }
+      ]
+    },
+    "tartan": {
+      "institution_id": "ins_109511",
+      "institution_name": "Tartan Bank",
+      "seeded": false,
+      "accounts": [
+        {
+          "type": "depository",
+          "subtype": "checking",
+          "starting_balance": 800.00,
+          "transactions": [
+            {"days_ago": 11, "amount": 14.00, "description": "CHIPOTLE"},
+            {"days_ago": 6, "amount": 52.00, "description": "SAFEWAY"}
+          ]
+        }
+      ]
+    }
+  }
+}

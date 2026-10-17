@@ -102,6 +102,12 @@ def save_token(item_id, access_token):
     with open(TOKEN_FILE, "w") as f:
         json.dump(tokens, f, indent=2)
 
+def remove_token(item_id):
+    tokens = load_tokens()
+    tokens.pop(item_id, None)
+    with open(TOKEN_FILE, "w") as f:
+        json.dump(tokens, f, indent=2)
+
 def load_tokens():
     if not TOKEN_FILE.exists():
         return {}

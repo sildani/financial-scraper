@@ -40,13 +40,16 @@ Money leaving your Accounts to someone else (e.g. Zelle, Venmo, wire). Counts as
 Money moving between two of your own Accounts. Not spending, not income.
 
 **Linked Movement**:
-A derived pairing of the two sides of a Card Payment or Internal Transfer across two Accounts. Each Account keeps its own side; the pairing is inferred, and a side with no counterpart stays unpaired and flagged.
+A derived pairing of the two sides of a Card Payment, Internal Transfer or loan payment across two Accounts. A loan payment's Spend is counted once, on the paying side; the loan's side is only its counterpart. Each Account keeps its own side; the pairing is inferred, and a side with no counterpart stays unpaired and flagged.
 
 **Displayed amount**:
 A Transaction's amount as the Institution presents it, so its sign depends on the Account's kind (Liability or Deposit account).
 
 **Spend**:
-The money-out value of a Transaction that counts as spending, positive regardless of Account kind. Transfer Outs and loan payments are Spend; Card Payments, Internal Transfers and Income are not. Analysis totals use Spend, never Displayed amount.
+The money-out value of a Transaction that counts as spending, positive regardless of Account kind. Transfer Outs and loan payments are Spend; Card Payments, Internal Transfers and Income are not. A Refund is negative Spend. Analysis totals use Spend, never Displayed amount.
+
+**Refund**:
+Money returned by a merchant for an earlier purchase. It is negative Spend in the purchase's Category, so totals net out; it is never Income.
 
 **Income**:
 Money in from outside your Accounts (wages, deposits). Reported separately and never netted against Spend.
@@ -65,3 +68,6 @@ An Export where one or more Institutions could not be fetched. It is allowed, bu
 
 **Link**:
 One authorized connection to one Institution, which may cover several Accounts. A Link is Active or Needs re-link; re-linking replaces the old Link rather than adding a second one. A Link that needs re-linking causes a Partial Export.
+
+**Environment**:
+Where Links come from: **Sandbox** (simulated Institutions, for testing) or **Production** (your real Institutions). Every Link and Export belongs to exactly one Environment, and Environments never mix.
