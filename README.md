@@ -43,7 +43,7 @@ An Agentic AI pipeline built with Python, PydanticAI, and Google Gemini to extra
 3. **Configure Environment Credentials:**
    - Copy `.env.example` to `.env` and supply your credentials.
    - For Gemini, you'll need a `GEMINI_API_KEY`.
-   - For Google Sheets, you'll need the `SPREADSHEET_ID` and your `service_account.json`.
+   - For Google Sheets, you'll need a `SPREADSHEET_ID_SANDBOX` (test Sheet) and/or `SPREADSHEET_ID_PRODUCTION` (real Sheet), and your `service_account.json`.
    - For Plaid, you'll need a `PLAID_CLIENT_ID`, `PLAID_SECRET`, and `PLAID_ENV`.
 
 ## Usage
@@ -69,7 +69,7 @@ Instead of manually downloading PDF statements, you can connect directly to your
   PLAID_SECRET=your_plaid_secret
   PLAID_ENV=sandbox
   ```
-- `PLAID_ENV` must be `sandbox` or `production`. Each Environment keeps its own Links in `.plaid_tokens.<PLAID_ENV>.json`, and `PLAID_SECRET` and `SPREADSHEET_ID` must belong to the same Environment. See `docs/plaid-testing.md`.
+- `PLAID_ENV` must be `sandbox` or `production`. Each Environment keeps its own Links in `.plaid_tokens.<PLAID_ENV>.json` and exports to its own Sheet (`SPREADSHEET_ID_SANDBOX` / `SPREADSHEET_ID_PRODUCTION`). `PLAID_SECRET` must belong to the same Environment. See `docs/plaid-testing.md`.
 
 #### 2. Link Your Bank Account(s)
 

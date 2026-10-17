@@ -21,7 +21,7 @@ from plaid.model.sandbox_item_reset_login_request import SandboxItemResetLoginRe
 from plaid.model.sandbox_public_token_create_request import SandboxPublicTokenCreateRequest
 from plaid.model.sandbox_public_token_create_request_options import SandboxPublicTokenCreateRequestOptions
 
-from src.config import PLAID_ENV
+from src.config import current_plaid_environment
 from src.plaid_client import get_plaid_client, exchange_public_token, get_transactions, load_tokens, remove_token
 
 FIXTURES_FILE = Path(__file__).parent / "sandbox_fixtures.json"
@@ -132,8 +132,12 @@ def main():
         sub.add_parser(command).add_argument("link")
     args = parser.parse_args()
 
-    if PLAID_ENV != "sandbox":
-        sys.exit(f"Refusing to run: PLAID_ENV is '{PLAID_ENV}', fixtures only exist in Sandbox.")
+    try:
+        environment = current_plaid_environment()
+    except ValueError as e:
+        sys.exit(f"Error: {e}")
+    if environment.name != "sandbox":
+        sys.exit(f"Refusing to run: PLAID_ENV is '{environment.name}', fixtures only exist in Sandbox.")
 
     links = load_links()
     if getattr(args, "link", None) and args.link not in links:

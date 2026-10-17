@@ -10,21 +10,14 @@ from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchan
 from plaid.model.transactions_get_request import TransactionsGetRequest
 from plaid.model.transactions_get_request_options import TransactionsGetRequestOptions
 
-from src.config import PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENVIRONMENT
+from src.config import PLAID_CLIENT_ID, PLAID_SECRET, current_plaid_environment
 
 PLAID_PRODUCTS = [Products("transactions")]
 PLAID_COUNTRY_CODES = [CountryCode("US")]
-TOKEN_FILE = PLAID_ENVIRONMENT.token_file
-
-PLAID_ENV_MAP = {
-    'sandbox': plaid.Environment.Sandbox,
-    'production': plaid.Environment.Production,
-}
 
 def get_plaid_client():
-    host = PLAID_ENV_MAP[PLAID_ENVIRONMENT.name]
     configuration = plaid.Configuration(
-        host=host,
+        host=current_plaid_environment().host,
         api_key={
             "clientId": PLAID_CLIENT_ID,
             "secret": PLAID_SECRET,
@@ -98,19 +91,20 @@ def get_public_token_from_link_session(link_token: str) -> str | None:
 def save_token(item_id, access_token):
     tokens = load_tokens()
     tokens[item_id] = access_token
-    with open(TOKEN_FILE, "w") as f:
+    with open(current_plaid_environment().token_file, "w") as f:
         json.dump(tokens, f, indent=2)
 
 def remove_token(item_id):
     tokens = load_tokens()
     tokens.pop(item_id, None)
-    with open(TOKEN_FILE, "w") as f:
+    with open(current_plaid_environment().token_file, "w") as f:
         json.dump(tokens, f, indent=2)
 
 def load_tokens():
-    if not TOKEN_FILE.exists():
+    token_file = current_plaid_environment().token_file
+    if not token_file.exists():
         return {}
-    with open(TOKEN_FILE, "r") as f:
+    with open(token_file, "r") as f:
         return json.load(f)
 
 if __name__ == "__main__":

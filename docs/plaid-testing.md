@@ -18,7 +18,7 @@ Each Environment has its own Plaid secret, token store and Google Sheet, all cho
 | `PLAID_ENV` | `sandbox` | `production` |
 | `PLAID_SECRET` | Sandbox secret from the Plaid Keys page | Production secret from the Plaid Keys page |
 | Token store | `.plaid_tokens.sandbox.json` | `.plaid_tokens.production.json` |
-| `SPREADSHEET_ID` | A Google Sheet used only for testing | Your real Google Sheet |
+| Google Sheet | `SPREADSHEET_ID_SANDBOX`: a Sheet used only for testing | `SPREADSHEET_ID_PRODUCTION`: your real Sheet |
 
 Any other `PLAID_ENV` value (including the retired `development`) must stop the run with an error.
 
@@ -39,7 +39,7 @@ The fixtures live in `scripts/sandbox_fixtures.json`, and `scripts/seed_sandbox.
 | C | Tartan Bank | Checking | You, through the browser Link flow |
 
 - [ ] **Step 1: Configure the Sandbox Environment**
-  - In `.env`, set `PLAID_ENV=sandbox`, the Sandbox `PLAID_SECRET`, and the `SPREADSHEET_ID` of your test Sheet.
+  - In `.env`, set `PLAID_ENV=sandbox`, the Sandbox `PLAID_SECRET`, and `SPREADSHEET_ID_SANDBOX` to your test Sheet.
   - Delete `.plaid_tokens.sandbox.json` if it exists. Sandbox Links go stale (`ITEM_LOGIN_REQUIRED`), and leftover Links would add unknown data to the Export.
 
 - [ ] **Step 2: Seed Links A and B**
@@ -155,7 +155,7 @@ The fixtures live in `scripts/sandbox_fixtures.json`, and `scripts/seed_sandbox.
   ```bash
   git worktree add ../financial-scraper-prod main
   ```
-  - Give it its own `.env` with `PLAID_ENV=production`, the Production `PLAID_SECRET`, and the `SPREADSHEET_ID` of your real Sheet. Copy in `service_account.json`, and share the real Sheet with the service account.
+  - Give it its own `.env` with `PLAID_ENV=production`, the Production `PLAID_SECRET`, and `SPREADSHEET_ID_PRODUCTION` to your real Sheet. Copy in `service_account.json`, and share the real Sheet with the service account.
   - Run every Phase 2 command from this checkout. Keep your development checkout on `PLAID_ENV=sandbox`.
 
 - [ ] **Step 3: Link your real Institutions**

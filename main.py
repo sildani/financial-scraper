@@ -1,11 +1,12 @@
 import os
+import sys
 import glob
 import argparse
 from datetime import datetime, timedelta
 import time
 import webbrowser
 
-from src.config import INPUT_DIR, PLAID_ENV
+from src.config import INPUT_DIR, current_plaid_environment
 from src.llm import process_statement_pdf
 from src.sheets import export_statements_to_sheet
 from src.plaid_client import create_link_token, exchange_public_token, get_transactions, load_tokens, get_public_token_from_link_session
@@ -30,6 +31,13 @@ def main():
         help="Fetch transactions from Plaid for the last 30 days."
     )
     args = parser.parse_args()
+
+    # Fail before any work: every run reads or writes Environment-specific Links and Sheets
+    try:
+        environment = current_plaid_environment()
+    except ValueError as e:
+        sys.exit(f"Error: {e}")
+    print(f"Environment: {environment.name}")
 
     if args.plaid_link:
         link_token, hosted_link_url = create_link_token()

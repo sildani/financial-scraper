@@ -4,7 +4,7 @@ import time
 import gspread
 
 from src.schemas import StatementSummary
-from src.config import SPREADSHEET_ID, SERVICE_ACCOUNT_FILE
+from src.config import SERVICE_ACCOUNT_FILE, current_plaid_environment
 
 
 def get_gspread_client() -> gspread.Client:
@@ -23,7 +23,7 @@ def export_statements_to_sheet(summaries: list[StatementSummary]):
     for attempt in range(MAX_RETRIES):
         try:
             gc = get_gspread_client()
-            sh = gc.open_by_key(SPREADSHEET_ID)
+            sh = gc.open_by_key(current_plaid_environment().spreadsheet_id)
 
             timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
             
