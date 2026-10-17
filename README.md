@@ -69,6 +69,7 @@ Instead of manually downloading PDF statements, you can connect directly to your
   PLAID_SECRET=your_plaid_secret
   PLAID_ENV=sandbox
   ```
+- `PLAID_ENV` must be `sandbox` or `production`. Each Environment keeps its own Links in `.plaid_tokens.<PLAID_ENV>.json`, and `PLAID_SECRET` and `SPREADSHEET_ID` must belong to the same Environment. See `docs/plaid-testing.md`.
 
 #### 2. Link Your Bank Account(s)
 
