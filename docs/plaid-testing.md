@@ -175,8 +175,9 @@ The fixtures live in `scripts/sandbox_fixtures.json`, and `scripts/seed_sandbox.
 
 - [ ] **Step 2: Create the Production checkout**
   ```bash
-  git worktree add ../financial-scraper-prod main
+  git worktree add --detach ../financial-scraper-prod main
   ```
+  - `--detach` is needed because `main` is already checked out in your development checkout. To move the Production checkout to the latest `main` later, run `git -C ../financial-scraper-prod fetch` and then `git -C ../financial-scraper-prod checkout --detach origin/main`.
   - Give it its own `.env` with `PLAID_ENV=production`, the Production `PLAID_SECRET`, and `SPREADSHEET_ID_PRODUCTION` to your real Sheet. Copy in `service_account.json`, and share the real Sheet with the service account.
   - Run every Phase 2 command from this checkout. Keep your development checkout on `PLAID_ENV=sandbox`.
 
