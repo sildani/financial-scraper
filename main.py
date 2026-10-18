@@ -11,6 +11,7 @@ from src.llm import process_statement_pdf
 from src.sheets import export_statements_to_sheet
 from src.plaid_client import create_link_token, exchange_public_token, get_transactions, load_tokens, get_public_token_from_link_session
 from src.plaid_transformer import summarize_link
+from src.linked_movements import pair_linked_movements
 
 def main():
     parser = argparse.ArgumentParser(description="Financial Statement Scraper & Analyzer")
@@ -79,20 +80,28 @@ def main():
             return
             
         summaries = []
+        responses = []
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=30)
         
         for item_id, access_token in tokens.items():
             print(f"\nFetching transactions for Item ID: {item_id}")
             response = get_transactions(access_token, start_date, end_date)
+            responses.append(response)
 
             for summary in summarize_link(response, start_date.isoformat(), end_date.isoformat()):
                 summaries.append(summary)
                 print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
 
+        # Card Payments and Internal Transfers cross Links, so pair over every Link at once
+        movements = pair_linked_movements(responses)
+        print(f"\nLinked Movements: {len(movements.paired)} paired, {len(movements.unpaired)} unpaired")
+        for side in movements.unpaired:
+            print(f"   ! Unpaired: {side.institution} ({side.account_name}) {side.date} {side.description} {side.amount:,.2f}")
+
         if summaries:
             print("\nExporting aggregated data to Google Sheets...")
-            export_statements_to_sheet(summaries)
+            export_statements_to_sheet(summaries, movements)
             print("\nBatch process complete!")
         return
 

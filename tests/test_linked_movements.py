@@ -1,0 +1,133 @@
+import unittest
+from datetime import date
+
+from src.linked_movements import pair_linked_movements
+from tests.test_plaid_transformer import account, transaction, link_response
+
+
+def pfc(detailed: str) -> dict:
+    return {"primary": detailed.split("_")[0], "detailed": detailed}
+
+
+CHECKING = account(account_id="acc-checking", name="Plaid Checking", mask="7829", type="depository", subtype="checking")
+SAVINGS = account(account_id="acc-savings", name="Plaid Saving", mask="5745", type="depository", subtype="savings")
+AUTO_LOAN = account(account_id="acc-auto", name="Plaid Auto", mask="2291", type="loan", subtype="auto")
+CARD = account(account_id="acc-card", name="Plaid Credit Card", mask="9496", type="credit", subtype="credit card")
+
+
+def side(name, account_id, amount, category, day=2):
+    return transaction(name, account_id=account_id, amount=amount, date=date(2026, 10, day), personal_finance_category=pfc(category))
+
+
+def pairs(movements):
+    return [(paid.description, received.description) for paid, received in movements.paired]
+
+
+def flagged(movements):
+    return [s.description for s in movements.unpaired]
+
+
+class PairingTest(unittest.TestCase):
+    def test_card_payment_across_two_links_is_paired(self):
+        movements = pair_linked_movements([
+            link_response([CHECKING], [side("PAYMENT TO FIRST GINGHAM CARD", "acc-checking", 500.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")]),
+            link_response([CARD], [side("PAYMENT THANK YOU", "acc-card", -500.00, "TRANSFER_IN_OTHER_TRANSFER_IN")], institution_name="First Gingham Credit Union"),
+        ])
+        self.assertEqual(pairs(movements), [("PAYMENT TO FIRST GINGHAM CARD", "PAYMENT THANK YOU")])
+        self.assertEqual(flagged(movements), [])
+
+    def test_sides_more_than_three_days_apart_are_not_paired(self):
+        movements = pair_linked_movements([
+            link_response([CHECKING, SAVINGS], [
+                side("ONLINE TRANSFER TO SAVINGS", "acc-checking", 300.00, "TRANSFER_OUT_SAVINGS", day=1),
+                side("ONLINE TRANSFER FROM CHECKING", "acc-savings", -300.00, "TRANSFER_IN_ACCOUNT_TRANSFER", day=5),
+            ]),
+        ])
+        self.assertEqual(pairs(movements), [])
+        self.assertEqual(flagged(movements), ["ONLINE TRANSFER TO SAVINGS", "ONLINE TRANSFER FROM CHECKING"])
+
+    def test_a_refund_is_never_a_side(self):
+        movements = pair_linked_movements([
+            link_response([CHECKING, CARD], [
+                side("ONLINE TRANSFER OUT", "acc-checking", 25.00, "TRANSFER_OUT_ACCOUNT_TRANSFER"),
+                side("Whole Foods", "acc-card", -25.00, "FOOD_AND_DRINK_GROCERIES"),
+            ]),
+        ])
+        self.assertEqual(pairs(movements), [])
+
+    def test_pending_activity_is_never_a_side(self):
+        movements = pair_linked_movements([
+            link_response([CHECKING, CARD], [
+                side("PAYMENT TO CARD", "acc-checking", 500.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"),
+                transaction("PAYMENT THANK YOU", account_id="acc-card", amount=-500.00, date=date(2026, 10, 2),
+                            personal_finance_category=pfc("TRANSFER_IN_OTHER_TRANSFER_IN"), pending=True),
+            ]),
+        ])
+        self.assertEqual(pairs(movements), [])
+        self.assertEqual(flagged(movements), ["PAYMENT TO CARD"])
+
+    def test_sandbox_fixture_links(self):
+        # What Plaid returned for docs/plaid-testing.md Phase 1 (seed_sandbox.py inspect)
+        platypus = link_response([CHECKING, SAVINGS, AUTO_LOAN], [
+            side("ACME CORP PAYROLL", "acc-checking", -2500.00, "INCOME_SALARY", day=1),
+            side("Trader Joe's", "acc-checking", 85.00, "FOOD_AND_DRINK_GROCERIES", day=1),
+            side("PAYMENT TO FIRST GINGHAM CARD", "acc-checking", 500.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=2),
+            side("DISCOVER E-PAYMENT", "acc-checking", 150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=3),
+            side("ONLINE TRANSFER FROM CHECKING XX1001", "acc-savings", -300.00, "TRANSFER_IN_ACCOUNT_TRANSFER", day=5),
+            side("ONLINE TRANSFER TO SAVINGS XX2002", "acc-checking", 300.00, "TRANSFER_OUT_SAVINGS", day=5),
+            side("ZELLE PAYMENT TO JOHN DOE", "acc-checking", 80.00, "TRANSFER_OUT_TRANSFER_OUT_FROM_APPS", day=7),
+            side("PAYMENT RECEIVED THANK YOU", "acc-auto", -200.00, "TRANSFER_IN_OTHER_TRANSFER_IN", day=9),
+            side("TOYOTA FINANCIAL PAYMENT", "acc-checking", 200.00, "LOAN_PAYMENTS_CAR_PAYMENT", day=9),
+        ])
+        gingham = link_response([CARD], [
+            side("Whole Foods", "acc-card", 60.00, "FOOD_AND_DRINK_GROCERIES", day=1),
+            side("PAYMENT THANK YOU", "acc-card", -500.00, "TRANSFER_IN_OTHER_TRANSFER_IN", day=2),
+            side("Whole Foods", "acc-card", -25.00, "FOOD_AND_DRINK_GROCERIES", day=4),
+            side("ZQX HOLDINGS 4471", "acc-card", 12.00, "ENTERTAINMENT_VIDEO_GAMES", day=8),
+        ], institution_name="First Gingham Credit Union")
+        tartan = link_response([account(account_id="acc-tartan", type="depository", subtype="checking")], [
+            side("Chipotle", "acc-tartan", 14.00, "FOOD_AND_DRINK_FAST_FOOD", day=6),
+            side("Safeway", "acc-tartan", 52.00, "FOOD_AND_DRINK_GROCERIES", day=11),
+        ], institution_name="Tartan Bank")
+
+        movements = pair_linked_movements([platypus, gingham, tartan])
+
+        self.assertEqual(pairs(movements), [
+            ("PAYMENT TO FIRST GINGHAM CARD", "PAYMENT THANK YOU"),
+            ("ONLINE TRANSFER TO SAVINGS XX2002", "ONLINE TRANSFER FROM CHECKING XX1001"),
+            ("TOYOTA FINANCIAL PAYMENT", "PAYMENT RECEIVED THANK YOU"),
+        ])
+        self.assertEqual(flagged(movements), ["DISCOVER E-PAYMENT"])
+
+
+class UnpairedFlaggingTest(unittest.TestCase):
+    def test_card_payment_to_an_unlinked_card_is_flagged(self):
+        movements = pair_linked_movements([
+            link_response([CHECKING], [side("DISCOVER E-PAYMENT", "acc-checking", 150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")]),
+        ])
+        self.assertEqual(pairs(movements), [])
+        self.assertEqual(flagged(movements), ["DISCOVER E-PAYMENT"])
+        self.assertEqual(movements.unpaired[0].direction, "paid")
+
+    def test_transfer_out_to_someone_else_is_not_flagged(self):
+        movements = pair_linked_movements([
+            link_response([CHECKING], [side("ZELLE PAYMENT TO JOHN DOE", "acc-checking", 80.00, "TRANSFER_OUT_TRANSFER_OUT_FROM_APPS")]),
+        ])
+        self.assertEqual(flagged(movements), [])
+
+    def test_payment_into_a_liability_from_an_unlinked_account_is_flagged(self):
+        movements = pair_linked_movements([
+            link_response([CARD], [side("PAYMENT THANK YOU", "acc-card", -500.00, "TRANSFER_IN_OTHER_TRANSFER_IN")]),
+        ])
+        self.assertEqual(flagged(movements), ["PAYMENT THANK YOU"])
+        self.assertEqual(movements.unpaired[0].direction, "received")
+
+    def test_money_in_to_a_deposit_account_from_someone_else_is_not_flagged(self):
+        movements = pair_linked_movements([
+            link_response([CHECKING], [side("VENMO FROM JANE", "acc-checking", -40.00, "TRANSFER_IN_OTHER_TRANSFER_IN")]),
+        ])
+        self.assertEqual(flagged(movements), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

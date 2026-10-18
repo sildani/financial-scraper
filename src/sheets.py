@@ -4,18 +4,24 @@ import time
 import gspread
 
 from src.schemas import AccountSummary
+from src.linked_movements import LinkedMovements, MovementSide
 from src.config import SERVICE_ACCOUNT_FILE, current_plaid_environment
+
+
+def side_cells(side: MovementSide) -> list:
+    return [side.institution, side.account_name, side.date.isoformat(), side.description]
 
 
 def get_gspread_client() -> gspread.Client:
     return gspread.service_account(filename=SERVICE_ACCOUNT_FILE)
 
 
-def export_statements_to_sheet(summaries: list[AccountSummary]):
+def export_statements_to_sheet(summaries: list[AccountSummary], movements: LinkedMovements | None = None):
     """Exports structured data to three timestamped tabs:
     - Summary_YYYYMMDDHHMMSS
     - Details_YYYYMMDDHHMMSS
     - Analysis_YYYYMMDDHHMMSS
+    plus LinkedMovements_YYYYMMDDHHMMSS when movements are given (Plaid mode only).
     """
     MAX_RETRIES = 3
     RETRY_DELAY_S = 5
@@ -76,6 +82,27 @@ def export_statements_to_sheet(summaries: list[AccountSummary]):
                 analysis_rows.append([merch, round(total, 2)])
 
             analysis_ws.append_rows(analysis_rows)
+
+            # 4. Linked Movements Sheet: paired sides, then unpaired sides flagged
+            if movements is not None:
+                movements_tab = f"LinkedMovements_{timestamp_str}"
+                movements_ws = sh.add_worksheet(title=movements_tab, rows=500, cols=12)
+                movements_ws.append_row([
+                    "Status", "Amount",
+                    "Paid From Institution", "Paid From Account", "Paid Date", "Paid Description",
+                    "Received By Institution", "Received By Account", "Received Date", "Received Description",
+                ])
+                no_side = ["", "", "", ""]
+                movement_rows = [
+                    ["Paired", paid.amount, *side_cells(paid), *side_cells(received)]
+                    for paid, received in movements.paired
+                ]
+                movement_rows += [
+                    ["UNPAIRED", s.amount, *(side_cells(s) + no_side if s.direction == "paid" else no_side + side_cells(s))]
+                    for s in movements.unpaired
+                ]
+                movements_ws.append_rows(movement_rows)
+                print(f"Exported Linked Movements to [{movements_tab}]")
 
             print(f"Exported run to sheets: [{summary_tab}], [{details_tab}], and [{analysis_tab}]")
             return # Success, exit the function and loop
