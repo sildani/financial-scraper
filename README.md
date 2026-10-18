@@ -106,4 +106,7 @@ Instead of manually downloading PDF statements, you can connect directly to your
   python main.py --relink
   ```
 - This finds every Link that needs re-linking and opens Plaid Link in update mode for each one. The Link is repaired in place, so no second Link is added and the token file doesn't change.
-- If one Link's session times out, the run moves on to the next. It ends with a summary of which Links were re-linked and which still need it, and exits with an error if any still do.
+- If one Link's session times out or Plaid returns an error, the run moves on to the next. A Link that hit a Plaid error still needs re-linking, and the summary shows the error code.
+- If Plaid can't check a Link at all, the run names it by its Item ID, says it couldn't be checked, and offers the others.
+- A Link whose session finished counts as re-linked even if Plaid reports another error, such as the Institution being down, which re-linking can't fix. The summary shows that error code.
+- The run ends with a summary of which Links were re-linked, which still need it and which couldn't be checked, and exits with an error unless every Link was re-linked.

@@ -139,17 +139,27 @@ def error_code(e: plaid.ApiException) -> str:
         return "UNKNOWN"
 
 
-def links_needing_relink(client=None, tokens=None) -> List[FailedLink]:
-    """Every Link in tokens (default: the Environment's token store) whose /item/get says it needs re-linking."""
+class RelinkCheck(BaseModel):
+    needing: List[FailedLink]
+    unchecked: List[FailedLink]  # /item/get raised, so whether they need re-linking is unknown
+
+
+def links_needing_relink(client=None, tokens=None) -> RelinkCheck:
+    """Every Link in tokens (default: the Environment's token store) whose /item/get says it needs re-linking;
+    a Link whose /item/get raises is reported instead of failing the run."""
     client = client or get_plaid_client()
     tokens = load_tokens() if tokens is None else tokens
-    needing = []
+    needing, unchecked = [], []
     for item_id, access_token in tokens.items():
-        item = client.item_get(ItemGetRequest(access_token=access_token))["item"]
+        try:
+            item = client.item_get(ItemGetRequest(access_token=access_token))["item"]
+        except plaid.ApiException as e:
+            unchecked.append(FailedLink(item_id=item_id, institution=item_id, error_code=error_code(e)))
+            continue
         error = item.get("error")
         if error and error_needs_relink(error["error_code"]):
             needing.append(FailedLink(item_id=item_id, institution=link_institution(item), error_code=error["error_code"]))
-    return needing
+    return RelinkCheck(needing=needing, unchecked=unchecked)
 
 
 def link_error_code(access_token: str) -> str | None:
