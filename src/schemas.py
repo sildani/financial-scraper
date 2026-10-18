@@ -1,6 +1,6 @@
 from decimal import Decimal
 from enum import Enum
-from typing import Literal, Optional, List
+from typing import Literal, NamedTuple, Optional, List
 from datetime import date
 from pydantic import BaseModel, Field
 
@@ -18,6 +18,24 @@ class SpendingCategory(str, Enum):
     OTHER = "Other"
 
 
+class SpendAndIncome(NamedTuple):
+    spend: Optional[float]  # None when the Transaction isn't Spend
+    income: Optional[float]  # None when the Transaction isn't Income
+
+
+def category_spend_and_income(category: SpendingCategory, money_out: float) -> SpendAndIncome:
+    """
+    A Transaction's Spend and Income as its Category alone decides them, in both Modes, from its money-out
+    amount. Payments & Credits (Card Payments, Internal Transfers and a loan's own side of a loan payment)
+    is neither, and Income & Deposits is Income.
+    """
+    if category == SpendingCategory.INCOME_DEPOSITS:
+        return SpendAndIncome(spend=None, income=-money_out)
+    if category == SpendingCategory.PAYMENTS_CREDITS:
+        return SpendAndIncome(spend=None, income=None)
+    return SpendAndIncome(spend=money_out, income=None)
+
+
 class ParsedTransaction(BaseModel):
     """
     Gemini's parse of one Statement line: amount is positive for money out and Spend follows Category,
@@ -32,12 +50,10 @@ class ParsedTransaction(BaseModel):
     # Methods, not fields, so they stay out of the Gemini output schema. Statement mode has no
     # Linked Movements, so Spend follows Category alone; Gemini's amounts are positive for money out.
     def spend(self) -> Optional[float]:
-        if self.category in (SpendingCategory.PAYMENTS_CREDITS, SpendingCategory.INCOME_DEPOSITS):
-            return None
-        return self.amount
+        return category_spend_and_income(self.category, self.amount).spend
 
     def income(self) -> Optional[float]:
-        return -self.amount if self.category == SpendingCategory.INCOME_DEPOSITS else None
+        return category_spend_and_income(self.category, self.amount).income
 
 
 class Transaction(ParsedTransaction):
