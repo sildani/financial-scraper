@@ -1,6 +1,6 @@
 import plaid
 import json
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
 from plaid.api import plaid_api
 from plaid.model.item_get_request import ItemGetRequest
@@ -15,6 +15,7 @@ from plaid.model.transactions_get_request import TransactionsGetRequest
 from plaid.model.transactions_get_request_options import TransactionsGetRequestOptions
 
 from src.config import PLAID_CLIENT_ID, PLAID_SECRET, current_plaid_environment
+from src.schemas import link_institution
 
 PLAID_PRODUCTS = [Products("transactions")]
 PLAID_COUNTRY_CODES = [CountryCode("US")]
@@ -89,6 +90,11 @@ def get_transactions(access_token, start_date, end_date, client=None):
     response["transactions"] = transactions
     return response
 
+def error_needs_relink(error_code: Optional[str]) -> bool:
+    """Whether a Link with this Plaid error code is Needs re-link (GLOSSARY.md) rather than Active or failing for now."""
+    return error_code == "ITEM_LOGIN_REQUIRED"
+
+
 class FailedLink(BaseModel):
     item_id: str
     institution: str
@@ -96,7 +102,7 @@ class FailedLink(BaseModel):
 
     @property
     def needs_relink(self) -> bool:
-        return self.error_code == "ITEM_LOGIN_REQUIRED"
+        return error_needs_relink(self.error_code)
 
 
 class FetchedLinks(BaseModel):
@@ -122,7 +128,7 @@ def institution_name(client, item_id: str, access_token: str) -> str:
         item = client.item_get(ItemGetRequest(access_token=access_token))["item"]
     except plaid.ApiException:
         return item_id
-    return item.get("institution_name") or item.get("institution_id") or item_id
+    return link_institution(item)
 
 
 def error_code(e: plaid.ApiException) -> str:
@@ -133,16 +139,16 @@ def error_code(e: plaid.ApiException) -> str:
         return "UNKNOWN"
 
 
-def links_needing_relink(client=None) -> List[FailedLink]:
-    """Every Link whose /item/get reports ITEM_LOGIN_REQUIRED."""
+def links_needing_relink(client=None, tokens=None) -> List[FailedLink]:
+    """Every Link in tokens (default: the Environment's token store) whose /item/get says it needs re-linking."""
     client = client or get_plaid_client()
+    tokens = load_tokens() if tokens is None else tokens
     needing = []
-    for item_id, access_token in load_tokens().items():
+    for item_id, access_token in tokens.items():
         item = client.item_get(ItemGetRequest(access_token=access_token))["item"]
         error = item.get("error")
-        if error and error["error_code"] == "ITEM_LOGIN_REQUIRED":
-            institution = item.get("institution_name") or item.get("institution_id") or item_id
-            needing.append(FailedLink(item_id=item_id, institution=institution, error_code=error["error_code"]))
+        if error and error_needs_relink(error["error_code"]):
+            needing.append(FailedLink(item_id=item_id, institution=link_institution(item), error_code=error["error_code"]))
     return needing
 
 

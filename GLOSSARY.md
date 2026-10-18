@@ -11,7 +11,7 @@ One real-world financial account (credit card, checking, loan) at an Institution
 An Account where you owe money: a credit card or a loan. Positive amounts mean money out (a purchase, or debt increased).
 
 **Deposit account**:
-An Account where you hold money: checking or savings. Positive amounts mean money in.
+An Account where you hold money: checking, savings, or any other Account that isn't a Liability (e.g. investment). Positive amounts mean money in.
 
 **Institution**:
 The bank or card issuer that holds an Account.

@@ -2,7 +2,7 @@ from datetime import date
 from typing import List, Literal, Tuple
 from pydantic import BaseModel
 
-from src.schemas import PlaidAccount, PlaidTransaction
+from src.schemas import PlaidAccount, PlaidTransaction, link_institution
 
 # Linked Movements (GLOSSARY.md) are inferred: two Transactions on different Accounts with
 # exactly opposite amounts, a few days apart, whose Plaid categories both say money moved.
@@ -11,7 +11,6 @@ from src.schemas import PlaidAccount, PlaidTransaction
 # Some Institutions file the card side of a Card Payment under LOAN_DISBURSEMENTS_ (#33).
 MOVEMENT_CATEGORY_PREFIXES = ("LOAN_PAYMENTS_", "LOAN_DISBURSEMENTS_", "TRANSFER_IN_", "TRANSFER_OUT_")
 MAX_DAYS_APART = 5
-LIABILITY_TYPES = ("credit", "loan")
 
 # Categories that mean money moved between two of your own Accounts, so a side without a
 # counterpart is flagged. Other movement categories (Zelle, wires, withdrawals) can be money
@@ -47,8 +46,7 @@ def pair_linked_movements(responses: List[dict]) -> LinkedMovements:
     """
     candidates = []
     for response in responses:
-        item = response["item"]
-        institution = item.get("institution_name") or item.get("institution_id") or "Unknown Institution"
+        institution = link_institution(response["item"])
         accounts = {acc["account_id"]: PlaidAccount(**acc) for acc in response["accounts"]}
         for tx in (PlaidTransaction(**tx) for tx in response.get("transactions", [])):
             if not is_movement(tx):
@@ -57,7 +55,7 @@ def pair_linked_movements(responses: List[dict]) -> LinkedMovements:
             candidates.append(Candidate(tx=tx, account=account, side=MovementSide(
                 transaction_id=tx.transaction_id,
                 institution=institution,
-                account_name=f"{account.name} ({account.mask})",
+                account_name=account.label,
                 date=tx.date,
                 description=tx.name,
                 amount=abs(tx.amount),
@@ -114,4 +112,4 @@ def is_own_account_movement(c: Candidate) -> bool:
     if c.tx.personal_finance_category.detailed.startswith(OWN_ACCOUNT_CATEGORY_PREFIXES):
         return True
     # Money arriving on a Liability is a payment toward it, whatever Plaid calls it
-    return c.account.type in LIABILITY_TYPES and c.side.direction == "received"
+    return c.account.kind == "liability" and c.side.direction == "received"

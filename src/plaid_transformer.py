@@ -1,5 +1,5 @@
 from typing import List, Set
-from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, Transaction, SpendingCategory, PlaidPersonalFinanceCategory
+from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, Transaction, SpendingCategory, PlaidPersonalFinanceCategory, link_institution
 from src.linked_movements import LinkedMovements
 
 # A mapping from Plaid's personal finance categories to our fixed Categories, keyed by
@@ -45,9 +45,7 @@ def summarize_link(response: dict, start_date: str, end_date: str, movements: Li
     Summarizes every Account in one Link's /transactions/get response, including Accounts
     with no Transactions in the Export window, since every Account's Balance belongs in the Export.
     """
-    # Plaid documents institution_name as nullable, so fall back to the Institution's ID
-    item = response["item"]
-    institution = item.get("institution_name") or item.get("institution_id") or "Unknown Institution"
+    institution = link_institution(response["item"])
     accounts = [PlaidAccount(**acc) for acc in response["accounts"]]
     transactions = [PlaidTransaction(**tx) for tx in response.get("transactions", [])]
     movement_ids = {side.transaction_id for pair in movements.paired for side in pair}
@@ -72,7 +70,7 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
 
         # Plaid amounts are positive for money out on every Account kind. The Displayed amount
         # follows the Account's kind (ADR-0001), so a Deposit account shows money in as positive.
-        amount = -tx.amount if account.type == "depository" else tx.amount
+        amount = -tx.amount if account.kind == "deposit" else tx.amount
         
         # Try to map the Plaid category to our enum
         category = SpendingCategory.OTHER
@@ -115,9 +113,9 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
 
     return AccountSummary(
         institution=institution,
-        account_name=f"{account.name} ({account.mask})",
+        account_name=account.label,
         period=f"{start_date} to {end_date}",
-        account_kind="deposit" if account.type == "depository" else "liability",
+        account_kind=account.kind,
         balance=account.balances.current,
         transactions=posted,
     )

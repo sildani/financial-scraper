@@ -13,7 +13,7 @@ from src.llm import process_statement_pdf
 from src.sheets import export_statements_to_sheet
 from src.plaid_client import (
     create_link_token, exchange_public_token, fetch_links, load_tokens, get_public_token_from_link_session,
-    links_needing_relink, link_session_finished, link_error_code, FailedLink, FetchedLinks,
+    links_needing_relink, link_session_finished, link_error_code, error_needs_relink, FailedLink, FetchedLinks,
 )
 from src.plaid_transformer import summarize_link
 from src.linked_movements import pair_linked_movements, LinkedMovements
@@ -100,7 +100,7 @@ def run_relink(needing: List[FailedLink], tokens: dict, relink_session=hosted_re
         print(f"\n--- Re-link {link.institution} ---")
         access_token = tokens[link.item_id]
         # A timed-out session still needs re-linking, but the other Links are still offered
-        if relink_session(access_token) and error_code(access_token) != "ITEM_LOGIN_REQUIRED":
+        if relink_session(access_token) and not error_needs_relink(error_code(access_token)):
             run.relinked.append(link)
         else:
             run.needs_relink.append(link)

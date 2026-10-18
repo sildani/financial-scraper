@@ -55,11 +55,15 @@ class Transaction(ParsedTransaction):
         return self.income_amount
 
 
+AccountKind = Literal["liability", "deposit"]  # Liability or Deposit account (ADR-0001)
+LIABILITY_TYPES = ("credit", "loan")  # The Plaid account types that are a Liability
+
+
 class AccountSummary(BaseModel):
     institution: str = Field(description="Name of the financial institution, e.g., Amex, Citi, Chase, Bank of America, Goldman Sachs")
     account_name: str = Field(description="Account descriptor or last 4 digits (e.g., 'Amex Gold - 1004', 'Checking - 8821')")
     period: str = Field(description="Statement period string, e.g., 'Aug 01, 2026 - Aug 31, 2026'")
-    account_kind: Literal["liability", "deposit"] = Field(description="'liability' for a credit card or loan statement, 'deposit' for checking or savings")
+    account_kind: AccountKind = Field(description="'liability' for a credit card or loan statement, 'deposit' for checking or savings")
     balance: float = Field(description="The account's new or ending balance at the end of the statement period")
     amount_due: Optional[float] = Field(default=None, description="Total amount due, only for a credit card or loan statement; null for checking or savings")
     due_date: Optional[str] = Field(default=None, description="Payment due date in YYYY-MM-DD format, only for a credit card or loan statement; null for checking or savings")
@@ -83,6 +87,15 @@ class PlaidAccount(BaseModel):
     type: str
     subtype: str
 
+    @property
+    def label(self) -> str:
+        return f"{self.name} ({self.mask})"
+
+    @property
+    def kind(self) -> AccountKind:
+        # Only a credit card or a loan is a Liability; any other Account holds your money (ADR-0001)
+        return "liability" if self.type in LIABILITY_TYPES else "deposit"
+
 class PlaidTransaction(BaseModel):
     account_id: str
     amount: float
@@ -104,3 +117,9 @@ class PlaidTransactionsResponse(BaseModel):
     accounts: List[PlaidAccount]
     transactions: List[PlaidTransaction]
     total_transactions: int
+
+
+def link_institution(item) -> str:
+    """A Link's Institution name from Plaid's item, falling back to the Institution's ID, then the Link's item ID."""
+    # Plaid documents institution_name and institution_id as nullable
+    return item.get("institution_name") or item.get("institution_id") or item["item_id"]
