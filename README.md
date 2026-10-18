@@ -11,7 +11,7 @@ An Agentic AI pipeline built with Python, PydanticAI, and Google Gemini to extra
 
 ## Project Structure
 
-- `main.py`: Main entry point for running the batch statement processor.
+- `main.py`: Main entry point: a Plaid mode Export by default, or Statement mode with `--statements`.
 - `src/`: Core application package:
   - `config.py`: Centralized configuration and environment loader.
   - `llm.py`: PydanticAI / Gemini statement extraction agent.
@@ -48,15 +48,18 @@ An Agentic AI pipeline built with Python, PydanticAI, and Google Gemini to extra
 
 ## Usage
 
-### Manual PDF Processing
+A run uses exactly one Mode. A bare `python main.py` runs **Plaid mode**; `--statements` runs **Statement mode** from PDFs instead.
+
+### Statement Mode (PDFs)
 
 1. **Place your statement PDFs inside the `input/` directory.**
 2. **Run the batch processor:**
    ```bash
-   python main.py
+   python main.py --statements
    ```
+   Add `-f` to re-parse PDFs that are already cached.
 
-### Automated Data Fetching with Plaid
+### Plaid Mode (default)
 
 Instead of manually downloading PDF statements, you can connect directly to your financial institutions using Plaid.
 
@@ -77,17 +80,17 @@ Instead of manually downloading PDF statements, you can connect directly to your
   ```bash
   python main.py --plaid-link
   ```
-- Follow the instructions: open the URL in your browser, complete the Link flow, and then paste the generated `public_token` back into the terminal.
+- Your browser opens Plaid Link (if it doesn't, open the printed URL). Complete the flow there; the tool waits up to 5 minutes, then saves the new Link on its own.
 
 #### 3. Fetch Transactions
 
 - Once your accounts are linked, you can fetch the last 30 days of transactions by running:
   ```bash
-  python main.py --fetch-transactions
+  python main.py
   ```
 - To export a different Export window, pass `--since` and/or `--until` (inclusive, `YYYY-MM-DD`). `--until` defaults to today and `--since` to 30 days before `--until`:
   ```bash
-  python main.py --fetch-transactions --since 2026-01-01 --until 2026-03-31
+  python main.py --since 2026-01-01 --until 2026-03-31
   ```
   New Links request 730 days of history. A Link made before that only has about 90 days, and `--relink` doesn't change that. To reach further back, link the Institution again with `--plaid-link`, then delete the old Link's entry from `.plaid_tokens.<PLAID_ENV>.json` so the Institution isn't fetched twice.
 - If a Link fails (for example, its login expired), the run still exports the other Links. That Export is a Partial Export: Summary and Analysis start with an `INCOMPLETE: missing <Institution>` row, and the terminal names the Links that need re-linking.

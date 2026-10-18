@@ -41,27 +41,33 @@ def run_hosted_link(hosted_link_url, poll):
     print(f"\n✗ Plaid Link flow timed out after {int(TIMEOUT_S / 60)} minutes. Please try again.")
     return None
 
-def main():
+def parse_args(argv=None) -> argparse.Namespace:
+    """
+    Parses the command line into args whose mode says what the run does: "plaid" (the default,
+    a Plaid mode Export), "statements" (a Statement mode Export), "link" or "relink".
+    """
     parser = argparse.ArgumentParser(description="Financial Statement Scraper & Analyzer")
-    parser.add_argument(
-        "-f", "--force", 
-        action="store_true", 
-        help="Force re-processing of PDFs via Gemini API, bypassing local cache"
+    # Without one of these, the run is a Plaid mode Export
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument(
+        "--statements",
+        action="store_true",
+        help=f"Statement mode: export from the Statement PDFs in {INPUT_DIR}/ instead of Plaid."
     )
-    parser.add_argument(
+    action.add_argument(
         "--plaid-link",
         action="store_true",
         help="Start the Plaid Link flow to connect a new financial institution."
     )
-    parser.add_argument(
+    action.add_argument(
         "--relink",
         action="store_true",
         help="Re-link every Link that needs it, in place, via Plaid Link update mode."
     )
     parser.add_argument(
-        "--fetch-transactions",
+        "-f", "--force",
         action="store_true",
-        help="Fetch transactions from Plaid for the Export window (default: the last 30 days)."
+        help="Force re-processing of PDFs via Gemini API, bypassing local cache"
     )
     parser.add_argument(
         "--since",
@@ -73,11 +79,27 @@ def main():
         metavar="YYYY-MM-DD",
         help="Last day of the Export window (default: today). Plaid mode only."
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+
+    if args.statements:
+        args.mode = "statements"
+    elif args.plaid_link:
+        args.mode = "link"
+    elif args.relink:
+        args.mode = "relink"
+    else:
+        args.mode = "plaid"
 
     # A Statement's own period defines what it covers, so the Export window is Plaid mode only
-    if (args.since or args.until) and not args.fetch_transactions:
-        sys.exit("Error: --since and --until only apply with --fetch-transactions")
+    if (args.since or args.until) and args.mode != "plaid":
+        parser.error("--since and --until only apply to a Plaid mode Export")
+    # The cache it bypasses only holds parsed Statements
+    if args.force and args.mode != "statements":
+        parser.error("-f/--force only applies with --statements")
+    return args
+
+def main():
+    args = parse_args()
 
     # Fail before any work: every run reads or writes Environment-specific Links and Sheets
     try:
@@ -86,7 +108,7 @@ def main():
         sys.exit(f"Error: {e}")
     print(f"Environment: {environment.name}")
 
-    if args.plaid_link:
+    if args.mode == "link":
         link_token, hosted_link_url = create_link_token()
         print("\n--- Plaid Link Setup ---")
         public_token = run_hosted_link(hosted_link_url, lambda: get_public_token_from_link_session(link_token))
@@ -99,7 +121,7 @@ def main():
         print("   (This access token has been saved securely for future use.)")
         return
 
-    if args.relink:
+    if args.mode == "relink":
         needing = links_needing_relink()
         if not needing:
             print("\nEvery Link is Active; nothing to re-link.")
@@ -117,13 +139,15 @@ def main():
                 print(f"✓ {link.institution} is re-linked.")
         return
 
-    if args.fetch_transactions:
+    if args.mode == "plaid":
         print("\nFetching transactions from Plaid...")
         tokens = load_tokens()
         if not tokens:
-            print("No Plaid access tokens found. Please run with --plaid-link to connect an account first.")
-            return
-            
+            sys.exit(
+                f"Error: no Links in the {environment.name} Environment. Run --plaid-link to add one, "
+                f"or --statements to export from the Statement PDFs in {INPUT_DIR}/."
+            )
+
         try:
             window = export_window(args.since, args.until, date.today())
         except ValueError as e:
@@ -163,7 +187,7 @@ def main():
             print("\nBatch process complete!")
         return
 
-    # Default PDF processing logic
+    # Statement mode: every other mode has returned
     pdf_files = glob.glob(os.path.join(INPUT_DIR, "*.pdf")) + glob.glob(os.path.join(INPUT_DIR, "*.PDF"))
     pdf_files = sorted(list(set(pdf_files)))
 

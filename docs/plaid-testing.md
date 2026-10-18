@@ -61,7 +61,7 @@ The fixtures live in `scripts/sandbox_fixtures.json`, and `scripts/seed_sandbox.
 
 - [ ] **Step 4: Run a full Export**
   ```bash
-  python main.py --fetch-transactions
+  python main.py
   ```
   - Open the newest set of tabs in the **test** Sheet.
 
@@ -119,7 +119,7 @@ The fixtures live in `scripts/sandbox_fixtures.json`, and `scripts/seed_sandbox.
 - [ ] **Step 5: Partial Export**
   ```bash
   python scripts/seed_sandbox.py reset-login tartan
-  python main.py --fetch-transactions
+  python main.py
   ```
   - **Validation:**
     - [ ] The run finishes and doesn't crash.
@@ -128,7 +128,7 @@ The fixtures live in `scripts/sandbox_fixtures.json`, and `scripts/seed_sandbox.
     - [ ] The terminal says Tartan Bank needs re-linking.
 
 - [ ] **Step 6: Re-link**
-  - Re-link Tartan Bank with `python main.py --relink`, using the same `user_custom` credentials as Step 3. Then run `python main.py --fetch-transactions` again.
+  - Re-link Tartan Bank with `python main.py --relink`, using the same `user_custom` credentials as Step 3. Then run `python main.py` again.
   - **Validation:**
     - [ ] `.plaid_tokens.sandbox.json` still holds exactly three Links. The re-link replaced the old Link instead of adding a second one.
     - [ ] The Export matches Step 4 again: six Accounts, Total Spend 923.00, not marked incomplete.
@@ -168,7 +168,7 @@ The fixtures live in `scripts/sandbox_fixtures.json`, and `scripts/seed_sandbox.
 
 - [ ] **Step 4: Fetch and validate real data**
   ```bash
-  python main.py --fetch-transactions
+  python main.py
   ```
   - **Validation:** open the newest tabs in your real Sheet.
     - [ ] **Details:** pick at least five recent Transactions per Account and compare them with the Institution's website. Date, description and Displayed amount (including sign) should match exactly what the Institution shows.
