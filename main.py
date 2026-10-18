@@ -2,7 +2,7 @@ import os
 import sys
 import glob
 import argparse
-from datetime import datetime, timedelta
+from datetime import date
 import time
 import webbrowser
 
@@ -12,6 +12,7 @@ from src.sheets import export_statements_to_sheet
 from src.plaid_client import create_link_token, exchange_public_token, get_transactions, load_tokens, get_public_token_from_link_session
 from src.plaid_transformer import summarize_link
 from src.linked_movements import pair_linked_movements
+from src.export_window import export_window, history_warning
 
 def main():
     parser = argparse.ArgumentParser(description="Financial Statement Scraper & Analyzer")
@@ -28,9 +29,23 @@ def main():
     parser.add_argument(
         "--fetch-transactions",
         action="store_true",
-        help="Fetch transactions from Plaid for the last 30 days."
+        help="Fetch transactions from Plaid for the Export window (default: the last 30 days)."
+    )
+    parser.add_argument(
+        "--since",
+        metavar="YYYY-MM-DD",
+        help="First day of the Export window (default: 30 days before --until). Plaid mode only."
+    )
+    parser.add_argument(
+        "--until",
+        metavar="YYYY-MM-DD",
+        help="Last day of the Export window (default: today). Plaid mode only."
     )
     args = parser.parse_args()
+
+    # A Statement's own period defines what it covers, so the Export window is Plaid mode only
+    if (args.since or args.until) and not args.fetch_transactions:
+        sys.exit("Error: --since and --until only apply with --fetch-transactions")
 
     # Fail before any work: every run reads or writes Environment-specific Links and Sheets
     try:
@@ -79,13 +94,19 @@ def main():
             print("No Plaid access tokens found. Please run with --plaid-link to connect an account first.")
             return
             
+        try:
+            window = export_window(args.since, args.until, date.today())
+        except ValueError as e:
+            sys.exit(f"Error: {e}")
+        print(f"Export window: {window.start} to {window.end}")
+        warning = history_warning(window, date.today())
+        if warning:
+            print(f"   ! {warning}")
+
         responses = []
-        end_date = datetime.now().date()
-        start_date = end_date - timedelta(days=30)
-        
         for item_id, access_token in tokens.items():
             print(f"\nFetching transactions for Item ID: {item_id}")
-            responses.append(get_transactions(access_token, start_date, end_date))
+            responses.append(get_transactions(access_token, window.start, window.end))
 
         # Card Payments and Internal Transfers cross Links, so pair over every Link at once
         movements = pair_linked_movements(responses)
@@ -96,7 +117,7 @@ def main():
         # Spend depends on Linked Movements, so summarize only once they're paired
         summaries = []
         for response in responses:
-            for summary in summarize_link(response, start_date.isoformat(), end_date.isoformat(), movements):
+            for summary in summarize_link(response, window.start.isoformat(), window.end.isoformat(), movements):
                 summaries.append(summary)
                 print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
 

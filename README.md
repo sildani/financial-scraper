@@ -85,3 +85,8 @@ Instead of manually downloading PDF statements, you can connect directly to your
   ```bash
   python main.py --fetch-transactions
   ```
+- To export a different Export window, pass `--since` and/or `--until` (inclusive, `YYYY-MM-DD`). `--until` defaults to today and `--since` to 30 days before `--until`:
+  ```bash
+  python main.py --fetch-transactions --since 2026-01-01 --until 2026-03-31
+  ```
+  New Links request 730 days of history. A Link made before that only has about 90 days; re-link it with `--plaid-link` to reach further back.

@@ -3,6 +3,7 @@ import json
 from plaid.api import plaid_api
 from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
+from plaid.model.link_token_transactions import LinkTokenTransactions
 from plaid.model.products import Products
 from plaid.model.link_token_get_request import LinkTokenGetRequest
 from plaid.model.country_code import CountryCode
@@ -14,6 +15,8 @@ from src.config import PLAID_CLIENT_ID, PLAID_SECRET, current_plaid_environment
 
 PLAID_PRODUCTS = [Products("transactions")]
 PLAID_COUNTRY_CODES = [CountryCode("US")]
+# Plaid's maximum; without it a Link only has about 90 days, which caps the Export window
+PLAID_DAYS_REQUESTED = 730
 
 def get_plaid_client():
     configuration = plaid.Configuration(
@@ -34,6 +37,7 @@ def create_link_token():
         products=PLAID_PRODUCTS,
         country_codes=PLAID_COUNTRY_CODES,
         language="en",
+        transactions=LinkTokenTransactions(days_requested=PLAID_DAYS_REQUESTED),
         hosted_link={}
     )
     response = client.link_token_create(request)
@@ -48,19 +52,31 @@ def exchange_public_token(public_token):
     save_token(item_id, access_token)
     return access_token, item_id
 
-def get_transactions(access_token, start_date, end_date):
-    client = get_plaid_client()
-    request = TransactionsGetRequest(
-        access_token=access_token,
-        start_date=start_date,
-        end_date=end_date,
-        options=TransactionsGetRequestOptions(
-            count=500,
-            include_personal_finance_category=True,
-        ),
-    )
-    response = client.transactions_get(request)
-    return response.to_dict()
+def get_transactions(access_token, start_date, end_date, client=None):
+    """
+    Fetches one Link's Transactions for the Export window. Plaid returns at most 500 per call,
+    so this pages until it has total_transactions.
+    """
+    client = client or get_plaid_client()
+    response = None
+    transactions = []
+    while response is None or len(transactions) < response["total_transactions"]:
+        request = TransactionsGetRequest(
+            access_token=access_token,
+            start_date=start_date,
+            end_date=end_date,
+            options=TransactionsGetRequestOptions(
+                count=500,
+                offset=len(transactions),
+                include_personal_finance_category=True,
+            ),
+        )
+        response = client.transactions_get(request).to_dict()
+        if not response["transactions"]:
+            break  # Plaid's total changed under us; don't loop forever
+        transactions.extend(response["transactions"])
+    response["transactions"] = transactions
+    return response
 
 def get_public_token_from_link_session(link_token: str) -> str | None:
     """
