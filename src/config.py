@@ -42,10 +42,13 @@ class PlaidEnvironment:
     spreadsheet_id: str
 
 
-def plaid_environment(name: str, env: Mapping[str, str]) -> PlaidEnvironment:
+def plaid_environment(name: str | None, env: Mapping[str, str]) -> PlaidEnvironment:
     """Everything that belongs to one Environment, so Sandbox and Production never mix."""
+    valid = f"Use one of: {', '.join(PLAID_HOSTS)}."
+    if not name:
+        raise ValueError(f"PLAID_ENV is not set. {valid}")
     if name not in PLAID_HOSTS:
-        raise ValueError(f"Unknown PLAID_ENV '{name}'. Use one of: {', '.join(PLAID_HOSTS)}.")
+        raise ValueError(f"Unknown PLAID_ENV '{name}'. {valid}")
     spreadsheet_var = f"SPREADSHEET_ID_{name.upper()}"
     if not env.get(spreadsheet_var):
         raise ValueError(f"{spreadsheet_var} is not set, but PLAID_ENV is '{name}'.")
@@ -60,4 +63,4 @@ def plaid_environment(name: str, env: Mapping[str, str]) -> PlaidEnvironment:
 @cache
 def current_plaid_environment() -> PlaidEnvironment:
     """The Environment selected by PLAID_ENV. Raises ValueError if it is misconfigured."""
-    return plaid_environment(os.getenv("PLAID_ENV", "sandbox"), os.environ)
+    return plaid_environment(os.getenv("PLAID_ENV"), os.environ)

@@ -42,7 +42,7 @@ Each Environment has its own Plaid secret, token store and Google Sheet, all cho
 | Token store | `.plaid_tokens.sandbox.json` | `.plaid_tokens.production.json` |
 | Google Sheet | `SPREADSHEET_ID_SANDBOX`: a Sheet used only for testing | `SPREADSHEET_ID_PRODUCTION`: your real Sheet |
 
-Any other `PLAID_ENV` value (including the retired `development`) must stop the run with an error.
+An unset `PLAID_ENV`, or any other value (including the retired `development`), must stop the run with an error.
 
 ---
 
@@ -158,7 +158,7 @@ The fixtures live in `scripts/sandbox_fixtures.json`, and `scripts/seed_sandbox.
 - [ ] **Step 7: Environment isolation**
   - [ ] Your real (Production) Sheet got no new tabs during Phase 1.
   - [ ] `.plaid_tokens.production.json` is unchanged, or doesn't exist yet.
-  - [ ] Setting `PLAID_ENV=development` (or any unknown value) stops the run with an error.
+  - [ ] Setting `PLAID_ENV=development` (or any unknown value), or leaving it unset, stops the run with an error.
 
 ---
 
