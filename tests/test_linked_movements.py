@@ -176,6 +176,16 @@ class UnpairedFlaggingTest(unittest.TestCase):
         self.assertEqual(flagged(movements), [])
 
 
+class AccountKindTest(unittest.TestCase):
+    def test_an_investment_account_is_a_deposit_account_in_the_export_and_in_linked_movements(self):
+        brokerage = account(account_id="acc-brokerage", name="Plaid Brokerage", mask="3333", type="investment", subtype="brokerage")
+        response = link_response([brokerage], [side("TRANSFER FROM JANE", "acc-brokerage", -40.00, "TRANSFER_IN_OTHER_TRANSFER_IN")])
+        movements = pair_linked_movements([response])
+        summary = summarize_link(response, "2026-09-17", "2026-10-17", movements)[0]
+        self.assertEqual(flagged(movements), [])
+        self.assertEqual((summary.account_kind, summary.transactions[0].amount), ("deposit", 40.00))
+
+
 class SideCategoryTest(unittest.TestCase):
     def test_both_sides_of_a_card_payment_are_payments_and_credits(self):
         self.assertEqual(categories(link_response([CHECKING, CARD], [

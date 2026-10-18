@@ -4,7 +4,7 @@ from datetime import date
 
 import plaid
 
-from src.plaid_client import create_link_token, fetch_links, get_transactions
+from src.plaid_client import create_link_token, fetch_links, get_transactions, links_needing_relink
 
 
 def plaid_error(error_code):
@@ -15,18 +15,24 @@ def plaid_error(error_code):
 
 class FakePlaidClient:
     """Plaid's /transactions/get, serving page_size Transactions per call from offset.
-    Access tokens in failing raise that Plaid error code; /item/get names each Link's Institution."""
+    Access tokens in failing raise that Plaid error code; /item/get names each Link's Institution
+    and reports the Link's error in item_errors, if any."""
 
-    def __init__(self, transactions, page_size=500, failing=None, institutions=None):
+    def __init__(self, transactions, page_size=500, failing=None, institutions=None, item_errors=None):
         self.transactions = transactions
         self.page_size = page_size
         self.failing = failing or {}
         self.institutions = institutions or {}
+        self.item_errors = item_errors or {}
 
     def item_get(self, request):
         if request.access_token not in self.institutions:
             raise plaid_error("INVALID_ACCESS_TOKEN")
-        return {"item": {"item_id": "item-1", "institution_id": "ins_1", "institution_name": self.institutions.get(request.access_token)}}
+        error_code = self.item_errors.get(request.access_token)
+        return {"item": {
+            "item_id": "item-1", "institution_id": "ins_1", "institution_name": self.institutions.get(request.access_token),
+            "error": {"error_code": error_code} if error_code else None,
+        }}
 
     def transactions_get(self, request):
         if request.access_token in self.failing:
@@ -95,6 +101,17 @@ class FetchLinksTest(unittest.TestCase):
         client = FakePlaidClient([], failing={"token-gone": "INSTITUTION_DOWN"})
         fetched = fetch_links({"item-gone": "token-gone"}, date(2026, 9, 17), date(2026, 10, 17), client=client)
         self.assertEqual([(f.institution, f.needs_relink) for f in fetched.failed], [("item-gone", False)])
+
+
+class LinksNeedingRelinkTest(unittest.TestCase):
+    def test_only_links_whose_login_is_required_need_re_linking(self):
+        client = FakePlaidClient(
+            [],
+            institutions={"token-tartan": "Tartan Bank", "token-platypus": "First Platypus Bank", "token-gingham": "First Gingham Credit Union"},
+            item_errors={"token-tartan": "ITEM_LOGIN_REQUIRED", "token-gingham": "INSTITUTION_DOWN"},
+        )
+        needing = links_needing_relink(client=client, tokens={"item-tartan": "token-tartan", "item-platypus": "token-platypus", "item-gingham": "token-gingham"})
+        self.assertEqual([(link.item_id, link.institution, link.needs_relink) for link in needing], [("item-tartan", "Tartan Bank", True)])
 
 
 if __name__ == "__main__":

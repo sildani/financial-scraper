@@ -169,6 +169,12 @@ class LinkSummaryTest(unittest.TestCase):
         summaries = summarize_link(link_response([account()], [], institution_name="First Gingham Credit Union"), "2026-09-17", "2026-10-17", NO_MOVEMENTS)
         self.assertEqual(summaries[0].institution, "First Gingham Credit Union")
 
+    def test_a_link_without_an_institution_name_or_id_is_named_by_its_item_id(self):
+        # Plaid documents both as nullable
+        response = {**link_response([account()], []), "item": {"item_id": "item-1", "institution_id": None, "institution_name": None}}
+        summaries = summarize_link(response, "2026-09-17", "2026-10-17", NO_MOVEMENTS)
+        self.assertEqual(summaries[0].institution, "item-1")
+
     def test_every_account_shows_its_balance(self):
         dormant_savings = account(account_id="acc-savings", balances={"current": 5000.00, "iso_currency_code": "USD"}, type="depository", subtype="savings")
         card = account(account_id="acc-card", balances={"current": 1250.00, "iso_currency_code": "USD"})
