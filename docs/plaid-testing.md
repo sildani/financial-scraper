@@ -89,7 +89,7 @@ The fixtures live in `scripts/sandbox_fixtures.json`, and `scripts/seed_sandbox.
 
   **Details: Displayed amounts and Categories**
 
-  Only Transactions inside the Export window (last 30 days) appear, and pending activity never does.
+  Only Transactions inside the Export window (today and the 30 days before it) appear, and pending activity never does.
 
   | Institution / Account | Transaction | Displayed amount | Treated as |
   |---|---|---|---|

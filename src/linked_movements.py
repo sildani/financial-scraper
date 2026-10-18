@@ -61,7 +61,7 @@ def pair_linked_movements(responses: List[dict]) -> LinkedMovements:
                 date=tx.date,
                 description=tx.name,
                 amount=abs(tx.amount),
-                # Plaid amounts are positive for money out on every Account kind (ADR-0001)
+                # Plaid amounts are positive for money out on every Account kind, unlike the Displayed amount
                 direction="paid" if tx.amount > 0 else "received",
             )))
 

@@ -88,7 +88,7 @@ Instead of manually downloading PDF statements, you can connect directly to your
 
 #### 3. Fetch Transactions
 
-- Once your accounts are linked, you can fetch the last 30 days of transactions by running:
+- Once your accounts are linked, you can fetch today's and the previous 30 days' transactions by running:
   ```bash
   python main.py
   ```

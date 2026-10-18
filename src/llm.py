@@ -22,7 +22,7 @@ statement_agent = Agent(
         "You are an expert financial auditor and data extraction agent. "
         "Analyze the provided credit card or bank statement document thoroughly. "
         "Extract overall statement metadata (account kind, balance, amount due and due date for credit cards or loans, interest charged) "
-        "and every single individual line item transaction. "
+        "and every single individual transaction. "
         "For each transaction, provide the raw description, clean the merchant name, convert the amount "
         "(positive for money out, on every kind of account), "
         "and assign the most accurate category from the permitted enum list."

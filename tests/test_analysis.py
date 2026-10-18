@@ -4,7 +4,7 @@ from src.analysis import analyze
 from src.linked_movements import pair_linked_movements
 from src.plaid_transformer import summarize_link
 from tests.test_linked_movements import CHECKING, SAVINGS, AUTO_LOAN, CARD, side
-from src.schemas import AccountSummary, LineItem
+from src.schemas import AccountSummary, ParsedTransaction, Transaction
 from src.statements import statement_summary
 from tests.test_plaid_transformer import account, link_response
 
@@ -152,10 +152,27 @@ def statement(account_kind, *items):
         institution="First Gingham Credit Union", account_name="Checking - 0000", period="Sep 01, 2026 - Sep 30, 2026",
         balance=1000.00, account_kind=account_kind,
         transactions=[
-            LineItem(transaction_date="2026-09-02", description=desc, clean_merchant=desc, amount=amount, category=category)
+            ParsedTransaction(transaction_date="2026-09-02", description=desc, clean_merchant=desc, amount=amount, category=category)
             for desc, amount, category in items
         ],
     ))
+
+
+class CachedStatementTest(unittest.TestCase):
+    def test_a_parse_cached_before_the_transaction_rename_still_loads(self):
+        # A cached Gemini parse, as model_dump_json wrote it before the models were renamed
+        cached = {
+            "institution": "First Gingham Credit Union", "account_name": "Checking - 0000",
+            "period": "Sep 01, 2026 - Sep 30, 2026", "account_kind": "deposit", "balance": 1000.0,
+            "amount_due": None, "due_date": None, "interest_charged": 0.0,
+            "transactions": [
+                {"transaction_date": "2026-09-02", "description": "GINGHAM GROCERS #123", "clean_merchant": "Gingham Grocers", "amount": 85.0, "category": "Groceries"},
+                {"transaction_date": "2026-09-15", "description": "ACME CORP PAYROLL", "clean_merchant": "ACME Corp", "amount": -2500.0, "category": "Income & Deposits"},
+            ],
+        }
+        summary = statement_summary(AccountSummary.model_validate(cached))
+        self.assertTrue(all(isinstance(tx, Transaction) for tx in summary.transactions))
+        self.assertEqual([(tx.amount, tx.spend(), tx.income()) for tx in summary.transactions], [(-85.0, 85.0, None), (2500.0, None, 2500.0)])
 
 
 class StatementSpendTest(unittest.TestCase):

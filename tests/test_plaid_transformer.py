@@ -56,7 +56,7 @@ class PendingActivityTest(unittest.TestCase):
 
 
 class DisplayedAmountTest(unittest.TestCase):
-    # Plaid's sign is positive for money out on every Account kind (ADR-0001)
+    # Plaid's sign is positive for money out on every Account kind; the Displayed amount follows Account kind (ADR-0001)
 
     def test_deposit_account_shows_money_in_as_positive(self):
         amounts = displayed_amounts(

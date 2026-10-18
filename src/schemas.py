@@ -18,7 +18,11 @@ class SpendingCategory(str, Enum):
     OTHER = "Other"
 
 
-class LineItem(BaseModel):
+class ParsedTransaction(BaseModel):
+    """
+    Gemini's parse of one Statement line: amount is positive for money out and Spend follows Category,
+    until statement_summary() turns it into a Transaction.
+    """
     transaction_date: str = Field(description="Transaction date in YYYY-MM-DD format")
     description: str = Field(description="Raw text descriptor from statement")
     clean_merchant: str = Field(description="Normalized vendor or entity name")
@@ -36,7 +40,7 @@ class LineItem(BaseModel):
         return -self.amount if self.category == SpendingCategory.INCOME_DEPOSITS else None
 
 
-class DecidedLineItem(LineItem):
+class Transaction(ParsedTransaction):
     """
     A Transaction whose amount is its Displayed amount and whose Spend and Income are already decided:
     from Plaid's data and Linked Movements in Plaid mode, or from Gemini's money-out amount in Statement mode.
@@ -60,7 +64,7 @@ class AccountSummary(BaseModel):
     amount_due: Optional[float] = Field(default=None, description="Total amount due, only for a credit card or loan statement; null for checking or savings")
     due_date: Optional[str] = Field(default=None, description="Payment due date in YYYY-MM-DD format, only for a credit card or loan statement; null for checking or savings")
     interest_charged: Optional[float] = Field(default=0.0, description="Total interest or fees charged, if applicable")
-    transactions: List[LineItem] = Field(description="List of all transactions found in the statement")
+    transactions: List[ParsedTransaction] = Field(description="List of all transactions found in the statement")
 # --- Plaid Models ---
 
 class PlaidAccountBalances(BaseModel):

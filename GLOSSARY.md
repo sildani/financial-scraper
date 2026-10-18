@@ -29,6 +29,7 @@ A disposable point-in-time snapshot of Transactions written to Google Sheets. Ea
 
 **Mode**:
 How a run obtains Transactions: either **Plaid mode** (live from linked Institutions) or **Statement mode** (from Statement PDFs). A run uses exactly one Mode; their data is never merged. Plaid mode is the primary one; Statement mode is the fallback for Institutions Plaid cannot reach.
+_Avoid_: mode for linking or re-linking; those are a run's other actions, not Modes
 
 **Statement**:
 A billing-cycle PDF issued by an Institution. Only Statement mode reads Statements.
@@ -55,7 +56,7 @@ Money returned by a merchant for an earlier purchase. It is negative Spend in th
 Money in from outside your Accounts (wages, deposits). Reported separately and never netted against Spend.
 
 **Export window**:
-The date range of Transactions an Export covers. Defaults to the last 30 days and can be overridden per run.
+The date range of Transactions an Export covers. Defaults to today and the 30 days before it, both ends inclusive (31 days), and can be overridden per run.
 
 **Balance**:
 An Account's current balance at the time of an Export, for any Account kind.
