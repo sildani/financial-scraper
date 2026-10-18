@@ -1,5 +1,5 @@
 from typing import List, Set
-from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, Transaction, SpendingCategory, PlaidPersonalFinanceCategory, link_institution
+from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, Transaction, SpendingCategory, PlaidPersonalFinanceCategory, link_institution, category_spend_and_income
 from src.linked_movements import LinkedMovements
 
 # A mapping from Plaid's personal finance categories to our fixed Categories, keyed by
@@ -85,19 +85,16 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
             if best_match_key:
                 category = PLAID_CATEGORY_MAPPING[best_match_key]
 
-        # Spend and Income are money-out and money-in values, so they use Plaid's own sign
-        spend_amount, income_amount = None, None
-        if category == SpendingCategory.INCOME_DEPOSITS:
-            income_amount = -tx.amount
-        elif category == SpendingCategory.PAYMENTS_CREDITS:
-            pass  # Card Payments and Internal Transfers, paired or not
-        elif tx.transaction_id in movement_ids and not is_loan_payment(tx, category):
-            # The other side of a Card Payment or loan payment, e.g. TRANSFER_IN_OTHER_TRANSFER_IN on the card (#32)
-            category = SpendingCategory.PAYMENTS_CREDITS
-        elif is_transfer_in(tx):
-            income_amount = -tx.amount  # Money in from someone else, e.g. Venmo from a friend
-        else:
-            spend_amount = tx.amount
+        # Spend and Income are money-out and money-in values, so they use Plaid's own sign.
+        # Plaid mode re-decides only what Category alone would call Spend.
+        by_category = category_spend_and_income(category, tx.amount)
+        spend_amount, income_amount = by_category
+        if by_category.spend is not None:
+            if tx.transaction_id in movement_ids and not is_loan_payment(tx, category):
+                # The other side of a Card Payment or loan payment, e.g. TRANSFER_IN_OTHER_TRANSFER_IN on the card (#32)
+                category, spend_amount = SpendingCategory.PAYMENTS_CREDITS, None
+            elif is_transfer_in(tx):
+                spend_amount, income_amount = None, -tx.amount  # Money in from someone else, e.g. Venmo from a friend
 
         posted.append(
             Transaction(

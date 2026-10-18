@@ -199,6 +199,15 @@ class StatementSpendTest(unittest.TestCase):
         self.assertEqual([tx.amount for tx in summary.transactions], [60.00, -500.00])
         self.assertEqual(analyze([summary]).spend_by_category, {"Groceries": 60.00})
 
+    def test_a_loan_statements_payment_received_is_not_spend(self):
+        summary = statement("liability",
+            ("Payment received thank you", -200.00, "Payments & Credits"),
+            ("Late fee", 25.00, "Mortgage & Loans"),
+        )
+        analysis = analyze([summary])
+        self.assertEqual(analysis.spend_by_category, {"Mortgage & Loans": 25.00})
+        self.assertEqual((analysis.total_spend, analysis.income), (25.00, 0.00))
+
 
 if __name__ == "__main__":
     unittest.main()
