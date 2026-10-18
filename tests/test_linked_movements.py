@@ -2,6 +2,7 @@ import unittest
 from datetime import date
 
 from src.linked_movements import pair_linked_movements
+from src.plaid_transformer import summarize_link
 from tests.test_plaid_transformer import account, transaction, link_response
 
 
@@ -25,6 +26,16 @@ def pairs(movements):
 
 def flagged(movements):
     return [s.description for s in movements.unpaired]
+
+
+def categories(*responses):
+    movements = pair_linked_movements(list(responses))
+    return {
+        item.description: item.category.value
+        for response in responses
+        for summary in summarize_link(response, "2026-09-17", "2026-10-17", movements)
+        for item in summary.transactions
+    }
 
 
 class PairingTest(unittest.TestCase):
@@ -163,6 +174,25 @@ class UnpairedFlaggingTest(unittest.TestCase):
             link_response([CHECKING], [side("VENMO FROM JANE", "acc-checking", -40.00, "TRANSFER_IN_OTHER_TRANSFER_IN")]),
         ])
         self.assertEqual(flagged(movements), [])
+
+
+class SideCategoryTest(unittest.TestCase):
+    def test_both_sides_of_a_card_payment_are_payments_and_credits(self):
+        self.assertEqual(categories(link_response([CHECKING, CARD], [
+            side("PAYMENT TO FIRST GINGHAM CARD", "acc-checking", 500.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"),
+            side("PAYMENT THANK YOU", "acc-card", -500.00, "TRANSFER_IN_OTHER_TRANSFER_IN"),
+        ])), {"PAYMENT TO FIRST GINGHAM CARD": "Payments & Credits", "PAYMENT THANK YOU": "Payments & Credits"})
+
+    def test_a_loan_payments_paying_side_is_mortgage_and_loans_and_the_loans_side_is_payments_and_credits(self):
+        self.assertEqual(categories(link_response([CHECKING, AUTO_LOAN], [
+            side("TOYOTA FINANCIAL PAYMENT", "acc-checking", 200.00, "LOAN_PAYMENTS_CAR_PAYMENT"),
+            side("PAYMENT RECEIVED THANK YOU", "acc-auto", -200.00, "TRANSFER_IN_OTHER_TRANSFER_IN"),
+        ])), {"TOYOTA FINANCIAL PAYMENT": "Mortgage & Loans", "PAYMENT RECEIVED THANK YOU": "Payments & Credits"})
+
+    def test_an_unpaired_payment_into_a_liability_is_payments_and_credits(self):
+        self.assertEqual(categories(link_response([CARD], [
+            side("PAYMENT THANK YOU", "acc-card", -500.00, "TRANSFER_IN_OTHER_TRANSFER_IN"),
+        ])), {"PAYMENT THANK YOU": "Payments & Credits"})
 
 
 if __name__ == "__main__":

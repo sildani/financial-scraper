@@ -114,7 +114,8 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
         elif category == SpendingCategory.PAYMENTS_CREDITS:
             pass  # Card Payments and Internal Transfers, paired or not
         elif tx.transaction_id in movement_ids and not is_loan_payment(tx, category):
-            pass  # The other side of a Card Payment or loan payment, e.g. TRANSFER_IN_OTHER_TRANSFER_IN on the card
+            # The other side of a Card Payment or loan payment, e.g. TRANSFER_IN_OTHER_TRANSFER_IN on the card (#32)
+            category = SpendingCategory.PAYMENTS_CREDITS
         elif is_transfer_in(tx):
             income_amount = -tx.amount  # Money in from someone else, e.g. Venmo from a friend
         else:

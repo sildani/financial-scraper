@@ -40,7 +40,7 @@ Money leaving your Accounts to someone else (e.g. Zelle, Venmo, wire). Counts as
 Money moving between two of your own Accounts. Not spending, not income.
 
 **Linked Movement**:
-A derived pairing of the two sides of a Card Payment, Internal Transfer or loan payment across two Accounts. A loan payment's Spend is counted once, on the paying side; the loan's side is only its counterpart. Each Account keeps its own side; the pairing is inferred, and a side with no counterpart stays unpaired and flagged.
+A derived pairing of the two sides of a Card Payment, Internal Transfer or loan payment across two Accounts. A loan payment's Spend is counted once, on the paying side; the loan's side is only its counterpart. Every side, paired or not, is in the Category Payments & Credits, except a loan payment's paying side, which is in Mortgage & Loans. Each Account keeps its own side; the pairing is inferred, and a side with no counterpart stays unpaired and flagged.
 
 **Displayed amount**:
 A Transaction's amount as the Institution presents it, so its sign depends on the Account's kind (Liability or Deposit account).
