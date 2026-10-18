@@ -40,16 +40,16 @@ def create_link_token(access_token=None, client=None):
     client = client or get_plaid_client()
     if access_token:
         # Update mode rejects products, and the Link keeps the history it was created with
-        mode = dict(access_token=access_token)
+        link_token_kwargs = dict(access_token=access_token)
     else:
-        mode = dict(products=PLAID_PRODUCTS, transactions=LinkTokenTransactions(days_requested=PLAID_DAYS_REQUESTED))
+        link_token_kwargs = dict(products=PLAID_PRODUCTS, transactions=LinkTokenTransactions(days_requested=PLAID_DAYS_REQUESTED))
     request = LinkTokenCreateRequest(
         user=LinkTokenCreateRequestUser(client_user_id="user-id"), # This should be a unique ID for each user.
         client_name="Financial Scraper",
         country_codes=PLAID_COUNTRY_CODES,
         language="en",
         hosted_link={},
-        **mode,
+        **link_token_kwargs,
     )
     response = client.link_token_create(request)
     return response["link_token"], response["hosted_link_url"]

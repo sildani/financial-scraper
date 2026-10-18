@@ -16,12 +16,18 @@ def parse_error(argv) -> str:
     return stderr.getvalue()
 
 
-class ModeTest(unittest.TestCase):
-    def test_a_bare_run_is_plaid_mode(self):
-        self.assertEqual(parse_args([]).mode, "plaid")
+class ActionTest(unittest.TestCase):
+    def test_a_bare_run_is_a_plaid_mode_export(self):
+        self.assertEqual(parse_args([]).action, "plaid-export")
 
-    def test_statements_flag_is_statement_mode(self):
-        self.assertEqual(parse_args(["--statements"]).mode, "statements")
+    def test_statements_flag_is_a_statement_mode_export(self):
+        self.assertEqual(parse_args(["--statements"]).action, "statement-export")
+
+    def test_plaid_link_flag_links(self):
+        self.assertEqual(parse_args(["--plaid-link"]).action, "link")
+
+    def test_relink_flag_relinks(self):
+        self.assertEqual(parse_args(["--relink"]).action, "relink")
 
 
 class FlagCombinationTest(unittest.TestCase):
@@ -32,15 +38,15 @@ class FlagCombinationTest(unittest.TestCase):
 
     def test_force_belongs_to_statement_mode_only(self):
         self.assertTrue(parse_args(["--statements", "-f"]).force)
-        for other_mode in ([], ["--plaid-link"], ["--relink"]):
-            with self.subTest(other_mode):
-                self.assertIn("-f/--force only applies with --statements", parse_error([*other_mode, "-f"]))
+        for other_action in ([], ["--plaid-link"], ["--relink"]):
+            with self.subTest(other_action):
+                self.assertIn("-f/--force only applies with --statements", parse_error([*other_action, "-f"]))
 
     def test_export_window_belongs_to_plaid_mode_exports_only(self):
-        self.assertEqual(parse_args(["--since", "2026-01-01", "--until", "2026-03-31"]).mode, "plaid")
-        for other_mode in (["--statements"], ["--plaid-link"], ["--relink"]):
-            with self.subTest(other_mode):
-                self.assertIn("--since and --until only apply to a Plaid mode Export", parse_error([*other_mode, "--since", "2026-01-01"]))
+        self.assertEqual(parse_args(["--since", "2026-01-01", "--until", "2026-03-31"]).action, "plaid-export")
+        for other_action in (["--statements"], ["--plaid-link"], ["--relink"]):
+            with self.subTest(other_action):
+                self.assertIn("--since and --until only apply to a Plaid mode Export", parse_error([*other_action, "--since", "2026-01-01"]))
 
 
 def fake_parse(failing=()):

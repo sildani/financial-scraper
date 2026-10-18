@@ -1,5 +1,5 @@
 from typing import List, Set
-from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, DecidedLineItem, SpendingCategory, PlaidPersonalFinanceCategory
+from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, Transaction, SpendingCategory, PlaidPersonalFinanceCategory
 from src.linked_movements import LinkedMovements
 
 # A mapping from Plaid's personal finance categories to our fixed Categories, keyed by
@@ -64,7 +64,7 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
     Transforms a list of Plaid transactions for a given account into an AccountSummary.
     movement_ids are the transaction IDs of every Linked Movement side, paired or not.
     """
-    line_items = []
+    posted = []
     for tx in transactions:
         # Pending activity is not a Transaction (GLOSSARY.md); only posted ones enter the record
         if tx.pending:
@@ -101,8 +101,8 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
         else:
             spend_amount = tx.amount
 
-        line_items.append(
-            DecidedLineItem(
+        posted.append(
+            Transaction(
                 transaction_date=tx.date.isoformat(),
                 description=tx.name,
                 clean_merchant=tx.merchant_name or tx.name,
@@ -119,7 +119,7 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
         period=f"{start_date} to {end_date}",
         account_kind="deposit" if account.type == "depository" else "liability",
         balance=account.balances.current,
-        transactions=line_items,
+        transactions=posted,
     )
 
 

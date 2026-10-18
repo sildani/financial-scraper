@@ -147,8 +147,8 @@ def run_statement_export(pdf_paths: List[str], force: bool = False, parse=proces
 
 def parse_args(argv=None) -> argparse.Namespace:
     """
-    Parses the command line into args whose mode says what the run does: "plaid" (the default,
-    a Plaid mode Export), "statements" (a Statement mode Export), "link" or "relink".
+    Parses the command line into args whose action says what the run does: "plaid-export" (the
+    default, a Plaid mode Export), "statement-export" (a Statement mode Export), "link" or "relink".
     """
     parser = argparse.ArgumentParser(description="Financial Statement Scraper & Analyzer")
     # Without one of these, the run is a Plaid mode Export
@@ -186,19 +186,19 @@ def parse_args(argv=None) -> argparse.Namespace:
     args = parser.parse_args(argv)
 
     if args.statements:
-        args.mode = "statements"
+        args.action = "statement-export"
     elif args.plaid_link:
-        args.mode = "link"
+        args.action = "link"
     elif args.relink:
-        args.mode = "relink"
+        args.action = "relink"
     else:
-        args.mode = "plaid"
+        args.action = "plaid-export"
 
     # A Statement's own period defines what it covers, so the Export window is Plaid mode only
-    if (args.since or args.until) and args.mode != "plaid":
+    if (args.since or args.until) and args.action != "plaid-export":
         parser.error("--since and --until only apply to a Plaid mode Export")
     # The cache it bypasses only holds parsed Statements
-    if args.force and args.mode != "statements":
+    if args.force and args.action != "statement-export":
         parser.error("-f/--force only applies with --statements")
     return args
 
@@ -212,7 +212,7 @@ def main():
         sys.exit(f"Error: {e}")
     print(f"Environment: {environment.name}")
 
-    if args.mode == "link":
+    if args.action == "link":
         link_token, hosted_link_url = create_link_token()
         print("\n--- Plaid Link Setup ---")
         public_token = run_hosted_link(hosted_link_url, lambda: get_public_token_from_link_session(link_token))
@@ -226,7 +226,7 @@ def main():
         print("   (This access token has been saved securely for future use.)")
         return
 
-    if args.mode == "relink":
+    if args.action == "relink":
         needing = links_needing_relink()
         if not needing:
             print("\nEvery Link is Active; nothing to re-link.")
@@ -235,7 +235,7 @@ def main():
             sys.exit("Error: some Links still need re-linking")
         return
 
-    if args.mode == "plaid":
+    if args.action == "plaid-export":
         print("\nFetching transactions from Plaid...")
         tokens = load_tokens()
         if not tokens:
@@ -257,7 +257,7 @@ def main():
             sys.exit("Error: no Link could be fetched, so no Export was written")
         return
 
-    # Statement mode: every other mode has returned
+    # Statement mode: every other action has returned
     pdf_files = glob.glob(os.path.join(INPUT_DIR, "*.pdf")) + glob.glob(os.path.join(INPUT_DIR, "*.PDF"))
     pdf_files = sorted(list(set(pdf_files)))
 
