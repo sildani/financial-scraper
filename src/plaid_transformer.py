@@ -1,5 +1,5 @@
 from typing import List, Set
-from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, PlaidLineItem, SpendingCategory, PlaidPersonalFinanceCategory
+from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, DecidedLineItem, SpendingCategory, PlaidPersonalFinanceCategory
 from src.linked_movements import LinkedMovements
 
 # A mapping from Plaid's personal finance categories to our fixed Categories, keyed by
@@ -122,7 +122,7 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
             spend_amount = tx.amount
 
         line_items.append(
-            PlaidLineItem(
+            DecidedLineItem(
                 transaction_date=tx.date.isoformat(),
                 description=tx.name,
                 clean_merchant=tx.merchant_name or tx.name,
@@ -137,6 +137,7 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
         institution=institution,
         account_name=f"{account.name} ({account.mask})",
         period=f"{start_date} to {end_date}",
+        account_kind="deposit" if account.type == "depository" else "liability",
         balance=account.balances.current,
         transactions=line_items,
     )

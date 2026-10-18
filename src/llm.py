@@ -6,6 +6,7 @@ from pydantic_ai import Agent, BinaryContent
 from pydantic_ai.models.google import GoogleModel
 
 from src.schemas import AccountSummary
+from src.statements import statement_summary
 from src.config import CACHE_DIR
 from src.utils import compute_md5
 
@@ -17,15 +18,16 @@ statement_agent = Agent(
     system_prompt=(
         "You are an expert financial auditor and data extraction agent. "
         "Analyze the provided credit card or bank statement document thoroughly. "
-        "Extract overall statement metadata (balance, amount due and due date for credit cards or loans, interest charged) "
+        "Extract overall statement metadata (account kind, balance, amount due and due date for credit cards or loans, interest charged) "
         "and every single individual line item transaction. "
-        "For each transaction, provide the raw description, clean the merchant name, convert the amount, "
+        "For each transaction, provide the raw description, clean the merchant name, convert the amount "
+        "(positive for money out, on every kind of account), "
         "and assign the most accurate category from the permitted enum list."
     )
 )
 
 def process_statement_pdf(pdf_path: str, force_reprocess: bool = False) -> AccountSummary:
-    """Processes PDF using Gemini, caching results by MD5 file hash."""
+    """Processes PDF using Gemini, caching its parse by MD5 file hash."""
     file_hash = compute_md5(pdf_path)
     cache_file = CACHE_DIR / f"{file_hash}.json"
 
@@ -34,7 +36,7 @@ def process_statement_pdf(pdf_path: str, force_reprocess: bool = False) -> Accou
         print(f"   ↳ [CACHE HIT] Loading cached data for MD5: {file_hash[:8]}...")
         with open(cache_file, "r") as f:
             cached_data = json.load(f)
-        return AccountSummary.model_validate(cached_data)
+        return statement_summary(AccountSummary.model_validate(cached_data))
 
     # API Call on Cache Miss or Force Flag
     print(f"   ↳ [API CALL] Sending to Gemini (MD5: {file_hash[:8]})...")
@@ -57,4 +59,4 @@ def process_statement_pdf(pdf_path: str, force_reprocess: bool = False) -> Accou
     with open(cache_file, "w") as f:
         f.write(summary.model_dump_json(indent=2))
 
-    return summary
+    return statement_summary(summary)

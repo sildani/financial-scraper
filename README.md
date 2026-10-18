@@ -59,6 +59,8 @@ A run uses exactly one Mode. A bare `python main.py` runs **Plaid mode**; `--sta
    ```
    Add `-f` to re-parse PDFs that are already cached.
 
+   Checking and savings Statements show money in as positive and money out as negative, just as your bank shows them (ADR-0001). Statements cached before this change don't record their Account kind and fail to load, so re-parse them once with `python main.py --statements -f`.
+
 ### Plaid Mode (default)
 
 Instead of manually downloading PDF statements, you can connect directly to your financial institutions using Plaid.
