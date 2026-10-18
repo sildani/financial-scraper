@@ -16,13 +16,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import plaid
 from plaid.model.products import Products
 from plaid.model.item_get_request import ItemGetRequest
+from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
 from plaid.model.item_remove_request import ItemRemoveRequest
 from plaid.model.sandbox_item_reset_login_request import SandboxItemResetLoginRequest
 from plaid.model.sandbox_public_token_create_request import SandboxPublicTokenCreateRequest
 from plaid.model.sandbox_public_token_create_request_options import SandboxPublicTokenCreateRequestOptions
 
 from src.config import current_plaid_environment
-from src.plaid_client import get_plaid_client, exchange_public_token, get_transactions, load_tokens, remove_token
+from src.plaid_client import get_plaid_client, get_transactions, load_tokens, remove_token, save_token
 
 FIXTURES_FILE = Path(__file__).parent / "sandbox_fixtures.json"
 PENDING_POSTS_IN_DAYS = 3
@@ -74,6 +75,31 @@ def find_access_token(client, link: dict) -> str:
     return load_tokens()[item_ids[0]]
 
 
+# These work on access tokens alone, never the token store, so the integration test can keep its Links to itself
+def create_fixture_link(client, link: dict) -> tuple[str, str]:
+    """Creates a Link from a fixture through the API; returns (item_id, access_token)."""
+    request = SandboxPublicTokenCreateRequest(
+        institution_id=link["institution_id"],
+        initial_products=[Products("transactions")],
+        options=SandboxPublicTokenCreateRequestOptions(
+            override_username="user_custom",
+            override_password=json.dumps(custom_user_config(link)),
+        ),
+    )
+    public_token = client.sandbox_public_token_create(request)["public_token"]
+    response = client.item_public_token_exchange(ItemPublicTokenExchangeRequest(public_token=public_token))
+    return response["item_id"], response["access_token"]
+
+
+def remove_link(client, access_token: str):
+    client.item_remove(ItemRemoveRequest(access_token=access_token))
+
+
+def force_relink(client, access_token: str):
+    """Puts a Link into Needs re-link (ITEM_LOGIN_REQUIRED)."""
+    client.sandbox_item_reset_login(SandboxItemResetLoginRequest(access_token=access_token))
+
+
 def seed(client, links):
     existing = item_ids_by_institution(client)
     tokens = load_tokens()
@@ -81,26 +107,17 @@ def seed(client, links):
         if not link["seeded"]:
             continue
         for item_id in existing.get(link["institution_id"], []):
-            client.item_remove(ItemRemoveRequest(access_token=tokens[item_id]))
+            remove_link(client, tokens[item_id])
             remove_token(item_id)
             print(f"   - Removed old {link['institution_name']} Link ({item_id})")
 
-        request = SandboxPublicTokenCreateRequest(
-            institution_id=link["institution_id"],
-            initial_products=[Products("transactions")],
-            options=SandboxPublicTokenCreateRequestOptions(
-                override_username="user_custom",
-                override_password=json.dumps(custom_user_config(link)),
-            ),
-        )
-        public_token = client.sandbox_public_token_create(request)["public_token"]
-        _, item_id = exchange_public_token(public_token)
+        item_id, access_token = create_fixture_link(client, link)
+        save_token(item_id, access_token)
         print(f"   ✓ Seeded {link['institution_name']} Link ({item_id})")
 
 
 def reset_login(client, link):
-    access_token = find_access_token(client, link)
-    client.sandbox_item_reset_login(SandboxItemResetLoginRequest(access_token=access_token))
+    force_relink(client, find_access_token(client, link))
     print(f"   ✓ {link['institution_name']} Link now needs re-link")
 
 

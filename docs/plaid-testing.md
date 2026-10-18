@@ -5,7 +5,29 @@ This is the end-to-end acceptance test for Plaid mode. It checks that an Export 
 - **Phase 1** runs in the **Sandbox** Environment against fixture Links with known Transactions, so every check has an exact expected value.
 - **Phase 2** runs in the **Production** Environment against your real Institutions. Don't start it until every Phase 1 check passes.
 
-Automated tests cover individual behaviors. This guide is the manual pass over the whole pipeline. Run it again after any change to Plaid mode.
+Unit tests cover individual behaviors. This guide covers the whole pipeline. Run it again after any change to Plaid mode, and before merging Plaid mode work to `main`.
+
+## Automated run of Phase 1
+
+Most of Phase 1 is automated in `tests/integration/test_plaid_sandbox.py`. It calls the Plaid Sandbox and Google Sheets, so it only runs when you ask for it:
+
+```bash
+PLAID_INTEGRATION=1 python -m unittest tests.integration.test_plaid_sandbox -v
+```
+
+It needs `PLAID_ENV=sandbox`, the Sandbox `PLAID_SECRET`, `SPREADSHEET_ID_SANDBOX` and `service_account.json`. It refuses to run if `SPREADSHEET_ID_SANDBOX` is the same as `SPREADSHEET_ID_PRODUCTION`. A plain `python -m unittest` skips it.
+
+- It seeds all three fixture Links, including Tartan Bank, through the API. Their access tokens stay in memory, so it never reads or changes `.plaid_tokens.sandbox.json`, and it removes its Links when it finishes.
+- It runs a full Export, then forces Tartan Bank into Needs re-link and runs a Partial Export. Then it reads both Exports back from the test Sheet and checks the exact values in Steps 4 and 5, plus the Step 7 checks a script can make.
+- When every check passes it deletes its tabs. When any check fails it keeps them, and prints their names so you can look.
+
+Three checks need a person. Do them by hand:
+
+- [ ] **Step 3:** creating a Link through the browser flow.
+- [ ] **Step 6:** re-linking in update mode with `--relink`. Plaid Sandbox has no API to repair a Link that needs re-linking.
+- [ ] **Step 7:** your real (Production) Sheet got no new tabs.
+
+The manual steps below are still the full reference, and the source of the test's expected values. If you change a fixture, change the tables below and the test together.
 
 ## Environments
 

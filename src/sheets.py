@@ -23,6 +23,7 @@ def export_statements_to_sheet(summaries: list[AccountSummary], movements: Linke
     - Analysis_YYYYMMDDHHMMSS
     plus LinkedMovements_YYYYMMDDHHMMSS when movements are given (Plaid mode only).
     A Partial Export names its missing Institutions in a banner atop Summary and Analysis.
+    Returns the names of the tabs it wrote.
     """
     MAX_RETRIES = 3
     RETRY_DELAY_S = 5
@@ -37,6 +38,7 @@ def export_statements_to_sheet(summaries: list[AccountSummary], movements: Linke
             summary_tab = f"Summary_{timestamp_str}"
             details_tab = f"Details_{timestamp_str}"
             analysis_tab = f"Analysis_{timestamp_str}"
+            tabs = [summary_tab, details_tab, analysis_tab]
 
             # 1. Summary Sheet
             summary_ws = sh.add_worksheet(title=summary_tab, rows=100, cols=10)
@@ -101,10 +103,11 @@ def export_statements_to_sheet(summaries: list[AccountSummary], movements: Linke
                     for s in movements.unpaired
                 ]
                 movements_ws.append_rows(movement_rows)
+                tabs.append(movements_tab)
                 print(f"Exported Linked Movements to [{movements_tab}]")
 
             print(f"Exported run to sheets: [{summary_tab}], [{details_tab}], and [{analysis_tab}]")
-            return # Success, exit the function and loop
+            return tabs # Success, exit the function and loop
         except gspread.exceptions.APIError as e:
             if e.response.status_code == 503 and attempt < MAX_RETRIES - 1:
                 print(f"   ! Google Sheets API unavailable (503). Retrying in {RETRY_DELAY_S} seconds... ({attempt + 1}/{MAX_RETRIES})")

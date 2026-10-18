@@ -5,17 +5,20 @@ import argparse
 from datetime import date
 import time
 import webbrowser
+from typing import List
+from pydantic import BaseModel
 
 from src.config import INPUT_DIR, current_plaid_environment
 from src.llm import process_statement_pdf
 from src.sheets import export_statements_to_sheet
 from src.plaid_client import (
     create_link_token, exchange_public_token, fetch_links, load_tokens, get_public_token_from_link_session,
-    links_needing_relink, link_session_finished, link_error_code,
+    links_needing_relink, link_session_finished, link_error_code, FetchedLinks,
 )
 from src.plaid_transformer import summarize_link
-from src.linked_movements import pair_linked_movements
-from src.export_window import export_window, history_warning
+from src.linked_movements import pair_linked_movements, LinkedMovements
+from src.export_window import export_window, history_warning, ExportWindow
+from src.schemas import AccountSummary
 
 def run_hosted_link(hosted_link_url, poll):
     """Opens hosted Link in the browser and polls until poll() returns something truthy; None on timeout."""
@@ -40,6 +43,45 @@ def run_hosted_link(hosted_link_url, poll):
 
     print(f"\n✗ Plaid Link flow timed out after {int(TIMEOUT_S / 60)} minutes. Please try again.")
     return None
+
+class PlaidExport(BaseModel):
+    fetched: FetchedLinks
+    movements: LinkedMovements | None = None  # None when no Link could be fetched
+    summaries: List[AccountSummary] = []
+    tabs: List[str] = []  # Empty when no Export was written
+
+def run_plaid_export(tokens: dict, window: ExportWindow, spreadsheet=None) -> PlaidExport:
+    """A Plaid mode Export of every Link in tokens over window, written to the Environment's Sheet."""
+    fetched = fetch_links(tokens, window.start, window.end)
+    responses = fetched.responses
+    for link in fetched.failed:
+        reason = "needs re-linking (run --relink)" if link.needs_relink else f"failed with {link.error_code}; try again later"
+        print(f"   ✗ {link.institution} {reason}")
+    if not responses:
+        return PlaidExport(fetched=fetched)
+
+    # Card Payments and Internal Transfers cross Links, so pair over every Link at once
+    movements = pair_linked_movements(responses)
+    print(f"\nLinked Movements: {len(movements.paired)} paired, {len(movements.unpaired)} unpaired")
+    for side in movements.unpaired:
+        print(f"   ! Unpaired: {side.institution} ({side.account_name}) {side.date} {side.description} {side.amount:,.2f}")
+
+    # Spend depends on Linked Movements, so summarize only once they're paired
+    summaries = []
+    for response in responses:
+        for summary in summarize_link(response, window.start.isoformat(), window.end.isoformat(), movements):
+            summaries.append(summary)
+            print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
+
+    tabs = []
+    if summaries:
+        print("\nExporting aggregated data to Google Sheets...")
+        missing = [link.institution for link in fetched.failed]
+        tabs = export_statements_to_sheet(summaries, movements, missing=missing, spreadsheet=spreadsheet)
+        if missing:
+            print(f"\n! Partial Export: missing {', '.join(missing)}")
+        print("\nBatch process complete!")
+    return PlaidExport(fetched=fetched, movements=movements, summaries=summaries, tabs=tabs)
 
 def parse_args(argv=None) -> argparse.Namespace:
     """
@@ -157,34 +199,8 @@ def main():
         if warning:
             print(f"   ! {warning}")
 
-        fetched = fetch_links(tokens, window.start, window.end)
-        responses = fetched.responses
-        for link in fetched.failed:
-            reason = "needs re-linking (run --relink)" if link.needs_relink else f"failed with {link.error_code}; try again later"
-            print(f"   ✗ {link.institution} {reason}")
-        if not responses:
+        if not run_plaid_export(tokens, window).fetched.responses:
             sys.exit("Error: no Link could be fetched, so no Export was written")
-
-        # Card Payments and Internal Transfers cross Links, so pair over every Link at once
-        movements = pair_linked_movements(responses)
-        print(f"\nLinked Movements: {len(movements.paired)} paired, {len(movements.unpaired)} unpaired")
-        for side in movements.unpaired:
-            print(f"   ! Unpaired: {side.institution} ({side.account_name}) {side.date} {side.description} {side.amount:,.2f}")
-
-        # Spend depends on Linked Movements, so summarize only once they're paired
-        summaries = []
-        for response in responses:
-            for summary in summarize_link(response, window.start.isoformat(), window.end.isoformat(), movements):
-                summaries.append(summary)
-                print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
-
-        if summaries:
-            print("\nExporting aggregated data to Google Sheets...")
-            missing = [link.institution for link in fetched.failed]
-            export_statements_to_sheet(summaries, movements, missing=missing)
-            if missing:
-                print(f"\n! Partial Export: missing {', '.join(missing)}")
-            print("\nBatch process complete!")
         return
 
     # Statement mode: every other mode has returned
