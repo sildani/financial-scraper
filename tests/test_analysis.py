@@ -5,6 +5,7 @@ from src.linked_movements import pair_linked_movements
 from src.plaid_transformer import summarize_link
 from tests.test_linked_movements import CHECKING, SAVINGS, AUTO_LOAN, CARD, side
 from src.schemas import AccountSummary, LineItem
+from src.statements import statement_summary
 from tests.test_plaid_transformer import account, link_response
 
 
@@ -145,30 +146,41 @@ def sandbox_tartan():
     ], institution_name="Tartan Bank")
 
 
-def statement(*items):
-    return AccountSummary(
-        institution="Chase", account_name="Checking - 8821", period="Sep 01, 2026 - Sep 30, 2026", balance=1000.00,
+def statement(account_kind, *items):
+    """A Statement as Gemini parses it: amounts are positive for money out on every Account kind."""
+    return statement_summary(AccountSummary(
+        institution="First Gingham Credit Union", account_name="Checking - 0000", period="Sep 01, 2026 - Sep 30, 2026",
+        balance=1000.00, account_kind=account_kind,
         transactions=[
             LineItem(transaction_date="2026-09-02", description=desc, clean_merchant=desc, amount=amount, category=category)
             for desc, amount, category in items
         ],
-    )
+    ))
 
 
 class StatementSpendTest(unittest.TestCase):
-    # Statement amounts are positive for money out (the Gemini prompt) and nothing is paired,
-    # so Spend follows Category alone
+    # Nothing is paired in Statement mode, so Spend follows Category alone
 
-    def test_card_payments_and_transfers_are_not_spend_and_income_is_separate(self):
-        analysis = analyze([statement(
+    def test_deposit_account_shows_money_in_as_positive_and_spend_is_unchanged(self):
+        summary = statement("deposit",
             ("Trader Joe's", 85.00, "Groceries"),
             ("Whole Foods refund", -25.00, "Groceries"),
-            ("Payment to Chase card", 500.00, "Payments & Credits"),
+            ("Payment to card", 500.00, "Payments & Credits"),
             ("ACME Corp payroll", -2500.00, "Income & Deposits"),
-        )])
+        )
+        self.assertEqual([tx.amount for tx in summary.transactions], [-85.00, 25.00, -500.00, 2500.00])
+        analysis = analyze([summary])
         self.assertEqual(analysis.spend_by_category, {"Groceries": 60.00})
         self.assertEqual(analysis.total_spend, 60.00)
         self.assertEqual(analysis.income, 2500.00)
+
+    def test_liability_amounts_are_unchanged(self):
+        summary = statement("liability",
+            ("Whole Foods", 60.00, "Groceries"),
+            ("Payment thank you", -500.00, "Payments & Credits"),
+        )
+        self.assertEqual([tx.amount for tx in summary.transactions], [60.00, -500.00])
+        self.assertEqual(analyze([summary]).spend_by_category, {"Groceries": 60.00})
 
 
 if __name__ == "__main__":

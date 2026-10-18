@@ -1,6 +1,6 @@
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, List
+from typing import Literal, Optional, List
 from datetime import date
 from pydantic import BaseModel, Field
 
@@ -22,11 +22,11 @@ class LineItem(BaseModel):
     transaction_date: str = Field(description="Transaction date in YYYY-MM-DD format")
     description: str = Field(description="Raw text descriptor from statement")
     clean_merchant: str = Field(description="Normalized vendor or entity name")
-    amount: float = Field(description="Positive decimal value for spend/debits, negative for credits/payments/deposits")
+    amount: float = Field(description="Positive decimal value for spend/debits, negative for credits/payments/deposits")  # Money-out sign until statement_summary()
     category: SpendingCategory = Field(description="Categorization based on vendor or transaction type")
 
     # Methods, not fields, so they stay out of the Gemini output schema. Statement mode has no
-    # Linked Movements, so Spend follows Category alone; amounts are already positive for money out.
+    # Linked Movements, so Spend follows Category alone; Gemini's amounts are positive for money out.
     def spend(self) -> Optional[float]:
         if self.category in (SpendingCategory.PAYMENTS_CREDITS, SpendingCategory.INCOME_DEPOSITS):
             return None
@@ -36,8 +36,11 @@ class LineItem(BaseModel):
         return -self.amount if self.category == SpendingCategory.INCOME_DEPOSITS else None
 
 
-class PlaidLineItem(LineItem):
-    """A Plaid mode Transaction, whose Spend is decided from Plaid's data and Linked Movements."""
+class DecidedLineItem(LineItem):
+    """
+    A Transaction whose amount is its Displayed amount and whose Spend and Income are already decided:
+    from Plaid's data and Linked Movements in Plaid mode, or from Gemini's money-out amount in Statement mode.
+    """
     spend_amount: Optional[float] = None  # None when the Transaction isn't Spend
     income_amount: Optional[float] = None  # None when the Transaction isn't Income
 
@@ -52,6 +55,7 @@ class AccountSummary(BaseModel):
     institution: str = Field(description="Name of the financial institution, e.g., Amex, Citi, Chase, Bank of America, Goldman Sachs")
     account_name: str = Field(description="Account descriptor or last 4 digits (e.g., 'Amex Gold - 1004', 'Checking - 8821')")
     period: str = Field(description="Statement period string, e.g., 'Aug 01, 2026 - Aug 31, 2026'")
+    account_kind: Literal["liability", "deposit"] = Field(description="'liability' for a credit card or loan statement, 'deposit' for checking or savings")
     balance: float = Field(description="The account's new or ending balance at the end of the statement period")
     amount_due: Optional[float] = Field(default=None, description="Total amount due, only for a credit card or loan statement; null for checking or savings")
     due_date: Optional[str] = Field(default=None, description="Payment due date in YYYY-MM-DD format, only for a credit card or loan statement; null for checking or savings")
