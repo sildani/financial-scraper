@@ -60,6 +60,10 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
     """
     line_items = []
     for tx in transactions:
+        # Pending activity is not a Transaction (GLOSSARY.md); only posted ones enter the record
+        if tx.pending:
+            continue
+
         # Plaid amounts are positive for debits, negative for credits.
         # Our LineItem model expects the same, so we don't need to change the sign for spending.
         # For credits/payments (which are negative in Plaid), we keep them negative.
