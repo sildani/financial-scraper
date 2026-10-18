@@ -38,12 +38,12 @@ FULL_DETAILS = [
     (PLATYPUS, "Checking", -80, "Other", 80),                     # Zelle to John Doe: Transfer Out
     (PLATYPUS, "Checking", -200, "Mortgage & Loans", 200),        # Toyota Financial: loan payment, paired
     (PLATYPUS, "Savings", 300, "Payments & Credits", ""),         # Internal Transfer from checking, paired
-    (PLATYPUS, "Auto loan", -200, "Other", ""),                   # Loan payment counterpart, not Spend
+    (PLATYPUS, "Auto loan", -200, "Payments & Credits", ""),      # Loan payment counterpart, not Spend
     (GINGHAM, "Credit card", 60, "Groceries", 60),                # Whole Foods
     (GINGHAM, "Credit card", 40, "Restaurants & Fast Food", 40),  # Olive Garden
     (GINGHAM, "Credit card", 400, "Travel", 400),                 # Delta Air Lines
     (GINGHAM, "Credit card", 5, "Restaurants & Fast Food", 5),    # Starbucks
-    (GINGHAM, "Credit card", -500, "Other", ""),                  # Card Payment received, paired
+    (GINGHAM, "Credit card", -500, "Payments & Credits", ""),     # Card Payment received, paired
     (GINGHAM, "Credit card", -25, "Groceries", -25),              # Whole Foods Refund: negative Spend
     (GINGHAM, "Credit card", 12, "Other", 12),                    # ZQX Holdings
     (TARTAN, "Checking", -14, "Restaurants & Fast Food", 14),     # Chipotle

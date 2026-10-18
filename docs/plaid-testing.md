@@ -95,18 +95,18 @@ The fixtures live in `scripts/sandbox_fixtures.json`, and `scripts/seed_sandbox.
   |---|---|---|---|
   | Platypus Checking | ACME Corp payroll | +2,500.00 | Income |
   | Platypus Checking | Trader Joe's | −85.00 | Spend, Groceries |
-  | Platypus Checking | Payment to First Gingham card | −500.00 | Card Payment, paired |
-  | Platypus Checking | Discover e-payment | −150.00 | Card Payment, **unpaired and flagged** |
-  | Platypus Checking | Online transfer to savings | −300.00 | Internal Transfer, paired |
+  | Platypus Checking | Payment to First Gingham card | −500.00 | Card Payment, paired, Payments & Credits |
+  | Platypus Checking | Discover e-payment | −150.00 | Card Payment, **unpaired and flagged**, Payments & Credits |
+  | Platypus Checking | Online transfer to savings | −300.00 | Internal Transfer, paired, Payments & Credits |
   | Platypus Checking | Zelle payment to John Doe | −80.00 | Transfer Out, Spend, Other |
   | Platypus Checking | Toyota Financial payment | −200.00 | Loan payment, Spend, Mortgage & Loans, paired |
-  | Platypus Savings | Online transfer from checking | +300.00 | Internal Transfer, paired |
-  | Platypus Auto loan | Payment received | −200.00 | Loan payment counterpart, paired, not Spend |
+  | Platypus Savings | Online transfer from checking | +300.00 | Internal Transfer, paired, Payments & Credits |
+  | Platypus Auto loan | Payment received | −200.00 | Loan payment counterpart, paired, not Spend, Payments & Credits |
   | Gingham Credit card | Whole Foods | 60.00 | Spend, Groceries |
   | Gingham Credit card | Olive Garden | 40.00 | Spend, Restaurants & Fast Food |
   | Gingham Credit card | Delta Air Lines | 400.00 | Spend, Travel |
   | Gingham Credit card | Starbucks | 5.00 | Spend, Restaurants & Fast Food |
-  | Gingham Credit card | Payment thank you | −500.00 | Card Payment, paired |
+  | Gingham Credit card | Payment thank you | −500.00 | Card Payment, paired, Payments & Credits |
   | Gingham Credit card | Whole Foods refund | −25.00 | Refund, Groceries |
   | Gingham Credit card | ZQX Holdings | 12.00 | Spend, Other |
   | Tartan Checking | Chipotle | −14.00 | Spend, Restaurants & Fast Food |
