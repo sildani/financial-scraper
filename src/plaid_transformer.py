@@ -1,47 +1,42 @@
 from typing import List
 from src.schemas import PlaidTransaction, PlaidAccount, StatementSummary, LineItem, SpendingCategory, PlaidPersonalFinanceCategory
 
-# A mapping from Plaid's detailed categories to our internal SpendingCategory enum.
-# This is not exhaustive and can be expanded.
+# A mapping from Plaid's personal finance categories to our fixed Categories, keyed by
+# PFCv2 detailed code or a prefix of one (the longest matching key wins). Taxonomy:
+# https://plaid.com/documents/pfc-taxonomy-all.csv
+# Anything that doesn't clearly fit a Category is left unmapped and goes to Other.
 PLAID_CATEGORY_MAPPING = {
-    # --- Transfers, Payments, and Income (Most specific rules first) ---
+    # --- Transfers, Payments, and Income ---
     "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT": SpendingCategory.PAYMENTS_CREDITS,
     "TRANSFER_IN_ACCOUNT_TRANSFER": SpendingCategory.PAYMENTS_CREDITS,
     "TRANSFER_OUT_ACCOUNT_TRANSFER": SpendingCategory.PAYMENTS_CREDITS,
-    "TRANSFER_OUT_PAYMENT": SpendingCategory.PAYMENTS_CREDITS,
+    "TRANSFER_IN_SAVINGS": SpendingCategory.PAYMENTS_CREDITS,
+    "TRANSFER_OUT_SAVINGS": SpendingCategory.PAYMENTS_CREDITS,
     "TRANSFER_IN_DEPOSIT": SpendingCategory.INCOME_DEPOSITS,
-    "TRANSFER_IN_WAGES": SpendingCategory.INCOME_DEPOSITS,
+    "INCOME": SpendingCategory.INCOME_DEPOSITS,  # Also covers PFCv1 names such as INCOME_WAGES
 
     # --- Spending Categories ---
     # Food and Drink
-    "FOOD_AND_DRINK_RESTAURANTS": SpendingCategory.RESTAURANTS_FAST_FOOD,
+    "FOOD_AND_DRINK_RESTAURANT": SpendingCategory.RESTAURANTS_FAST_FOOD,
     "FOOD_AND_DRINK_FAST_FOOD": SpendingCategory.RESTAURANTS_FAST_FOOD,
-    "FOOD_AND_DRINK_COFFEE_SHOP": SpendingCategory.RESTAURANTS_FAST_FOOD,
+    "FOOD_AND_DRINK_COFFEE": SpendingCategory.RESTAURANTS_FAST_FOOD,
     "FOOD_AND_DRINK_GROCERIES": SpendingCategory.GROCERIES,
-    
-    # Transportation (Airlines are specific)
-    "TRANSPORTATION_AIRLINES_AND_AVIATION_SERVICES": SpendingCategory.TRAVEL,
-    "TRANSPORTATION_FUEL": SpendingCategory.CAR_FUEL,
-    "TRANSPORTATION_PUBLIC_TRANSIT": SpendingCategory.CAR_MAINTENANCE,
-    "TRANSPORTATION_TAXIS_AND_RIDE_SHARES": SpendingCategory.CAR_MAINTENANCE,
-    "GENERAL_MERCHANDISE_AUTO_PARTS": SpendingCategory.CAR_MAINTENANCE,
-    
-    # General Merchandise & Shopping
-    "GENERAL_MERCHANDISE_SUPERSTORES": SpendingCategory.GROCERIES, # e.g., Target, Walmart
-    "GENERAL_MERCHANDISE_ONLINE_MARKETPLACES": SpendingCategory.UTILITIES_SUBSCRIPTIONS, # e.g., Amazon
-    "GENERAL_MERCHANDISE_DEPARTMENT_STORES": SpendingCategory.UTILITIES_SUBSCRIPTIONS,
-    "GENERAL_MERCHANDISE_CLOTHING_AND_ACCESSORIES": SpendingCategory.UTILITIES_SUBSCRIPTIONS,
-    
+
+    # Travel and Car
+    "TRAVEL": SpendingCategory.TRAVEL,
+    "TRANSPORTATION_GAS": SpendingCategory.CAR_FUEL,
+    "GENERAL_SERVICES_AUTOMOTIVE": SpendingCategory.CAR_MAINTENANCE,
+
     # Utilities, Services & Subscriptions
-    "UTILITIES": SpendingCategory.UTILITIES_SUBSCRIPTIONS,
+    "RENT_AND_UTILITIES": SpendingCategory.UTILITIES_SUBSCRIPTIONS,
+    "RENT_AND_UTILITIES_RENT": SpendingCategory.OTHER,
     "GENERAL_SERVICES_INSURANCE": SpendingCategory.UTILITIES_SUBSCRIPTIONS,
-    "GENERAL_SERVICES_TELECOMMUNICATION_SERVICES": SpendingCategory.UTILITIES_SUBSCRIPTIONS,
-    "ENTERTAINMENT_STREAMING_SERVICES": SpendingCategory.UTILITIES_SUBSCRIPTIONS,
-    
-    # Loans (Broad rules last)
+
+    # Loans
     "LOAN_PAYMENTS_MORTGAGE_PAYMENT": SpendingCategory.MORTGAGE_LOANS,
     "LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT": SpendingCategory.MORTGAGE_LOANS,
-    "LOAN_PAYMENTS_AUTO_LOAN_PAYMENT": SpendingCategory.MORTGAGE_LOANS,
+    "LOAN_PAYMENTS_CAR_PAYMENT": SpendingCategory.MORTGAGE_LOANS,
+    "LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT": SpendingCategory.MORTGAGE_LOANS,
 }
 
 # Fallback mapping for when Plaid's category is missing or unhelpful.
