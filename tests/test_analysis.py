@@ -22,8 +22,8 @@ def plaid_analysis(*responses):
 class PlaidSpendTest(unittest.TestCase):
     def test_purchases_are_positive_spend_on_every_account_kind(self):
         analysis = plaid_analysis(link_response([CHECKING, CARD], [
-            side("Trader Joe's", "acc-checking", 85.00, "FOOD_AND_DRINK_GROCERIES"),
-            side("Whole Foods", "acc-card", 60.00, "FOOD_AND_DRINK_GROCERIES"),
+            side("Thistle Grocery", "acc-checking", 85.00, "FOOD_AND_DRINK_GROCERIES"),
+            side("Pinecone Market", "acc-card", 60.00, "FOOD_AND_DRINK_GROCERIES"),
         ]))
         self.assertEqual(analysis.spend_by_category, {"Groceries": 145.00})
         self.assertEqual(analysis.total_spend, 145.00)
@@ -31,7 +31,7 @@ class PlaidSpendTest(unittest.TestCase):
     def test_income_is_reported_separately_and_never_netted(self):
         analysis = plaid_analysis(link_response([CHECKING], [
             side("ACME CORP PAYROLL", "acc-checking", -2500.00, "INCOME_SALARY"),
-            side("Trader Joe's", "acc-checking", 85.00, "FOOD_AND_DRINK_GROCERIES"),
+            side("Thistle Grocery", "acc-checking", 85.00, "FOOD_AND_DRINK_GROCERIES"),
         ]))
         self.assertEqual(analysis.spend_by_category, {"Groceries": 85.00})
         self.assertEqual(analysis.total_spend, 85.00)
@@ -41,7 +41,7 @@ class PlaidSpendTest(unittest.TestCase):
         analysis = plaid_analysis(link_response([CHECKING, SAVINGS, CARD], [
             side("PAYMENT TO FIRST GINGHAM CARD", "acc-checking", 500.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"),
             side("PAYMENT THANK YOU", "acc-card", -500.00, "TRANSFER_IN_OTHER_TRANSFER_IN"),
-            side("DISCOVER E-PAYMENT", "acc-checking", 150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"),
+            side("WOMBAT CARD E-PAYMENT", "acc-checking", 150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"),
             side("ONLINE TRANSFER TO SAVINGS", "acc-checking", 300.00, "TRANSFER_OUT_SAVINGS"),
             side("ONLINE TRANSFER FROM CHECKING", "acc-savings", -300.00, "TRANSFER_IN_ACCOUNT_TRANSFER"),
         ]))
@@ -50,7 +50,7 @@ class PlaidSpendTest(unittest.TestCase):
 
     def test_loan_payment_is_spend_on_the_paying_side_only(self):
         analysis = plaid_analysis(link_response([CHECKING, AUTO_LOAN], [
-            side("TOYOTA FINANCIAL PAYMENT", "acc-checking", 200.00, "LOAN_PAYMENTS_CAR_PAYMENT"),
+            side("KESTREL AUTO FINANCE PAYMENT", "acc-checking", 200.00, "LOAN_PAYMENTS_CAR_PAYMENT"),
             side("PAYMENT RECEIVED THANK YOU", "acc-auto", -200.00, "TRANSFER_IN_OTHER_TRANSFER_IN"),
         ]))
         self.assertEqual(analysis.spend_by_category, {"Mortgage & Loans": 200.00})
@@ -58,7 +58,7 @@ class PlaidSpendTest(unittest.TestCase):
 
     def test_loan_payment_to_an_unlinked_lender_is_still_spend(self):
         analysis = plaid_analysis(link_response([CHECKING], [
-            side("ROCKET MORTGAGE", "acc-checking", 1800.00, "LOAN_PAYMENTS_MORTGAGE_PAYMENT"),
+            side("QUOKKA HOME LOANS", "acc-checking", 1800.00, "LOAN_PAYMENTS_MORTGAGE_PAYMENT"),
         ]))
         self.assertEqual(analysis.spend_by_category, {"Mortgage & Loans": 1800.00})
 
@@ -70,22 +70,22 @@ class PlaidSpendTest(unittest.TestCase):
 
     def test_refund_is_negative_spend_in_its_purchases_category(self):
         analysis = plaid_analysis(link_response([CARD], [
-            side("Whole Foods", "acc-card", 60.00, "FOOD_AND_DRINK_GROCERIES", day=1),
-            side("Whole Foods", "acc-card", -25.00, "FOOD_AND_DRINK_GROCERIES", day=4),
+            side("Pinecone Market", "acc-card", 60.00, "FOOD_AND_DRINK_GROCERIES", day=1),
+            side("Pinecone Market", "acc-card", -25.00, "FOOD_AND_DRINK_GROCERIES", day=4),
         ]))
         self.assertEqual(analysis.spend_by_category, {"Groceries": 35.00})
-        self.assertEqual(analysis.spend_by_merchant, {"Whole Foods": 35.00})
+        self.assertEqual(analysis.spend_by_merchant, {"Pinecone Market": 35.00})
         self.assertEqual(analysis.income, 0.00)
 
     def test_transfer_in_from_someone_else_is_income(self):
         analysis = plaid_analysis(link_response([CHECKING], [
-            side("VENMO FROM JANE", "acc-checking", -40.00, "TRANSFER_IN_OTHER_TRANSFER_IN"),
+            side("PAYAPP FROM JANE", "acc-checking", -40.00, "TRANSFER_IN_OTHER_TRANSFER_IN"),
         ]))
         self.assertEqual(analysis.spend_by_category, {})
         self.assertEqual(analysis.income, 40.00)
 
     def test_sandbox_fixture_links(self):
-        # What Plaid returned for docs/plaid-testing.md Phase 1, checked against Step 4's Analysis
+        # Shaped like what Plaid returned for docs/plaid-testing.md Phase 1, with neutral names, checked against Step 4's Analysis
         analysis = plaid_analysis(sandbox_platypus(), sandbox_gingham(), sandbox_tartan())
 
         self.assertEqual(analysis.spend_by_category, {
@@ -97,7 +97,7 @@ class PlaidSpendTest(unittest.TestCase):
         })
         self.assertEqual(analysis.total_spend, 923.00)
         self.assertEqual(analysis.income, 2500.00)
-        self.assertEqual(analysis.spend_by_merchant["Whole Foods"], 35.00)
+        self.assertEqual(analysis.spend_by_merchant["Pinecone Market"], 35.00)
 
     def test_sandbox_fixture_links_without_tartan(self):
         # docs/plaid-testing.md Phase 1 Step 5: Tartan needs re-linking, so the Partial Export drops it
@@ -116,33 +116,33 @@ class PlaidSpendTest(unittest.TestCase):
 def sandbox_platypus():
     return link_response([CHECKING, SAVINGS, AUTO_LOAN], [
         side("ACME CORP PAYROLL", "acc-checking", -2500.00, "INCOME_SALARY", day=1),
-        side("Trader Joe's", "acc-checking", 85.00, "FOOD_AND_DRINK_GROCERIES", day=1),
+        side("Thistle Grocery", "acc-checking", 85.00, "FOOD_AND_DRINK_GROCERIES", day=1),
         side("PAYMENT TO FIRST GINGHAM CARD", "acc-checking", 500.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=2),
-        side("DISCOVER E-PAYMENT", "acc-checking", 150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=3),
+        side("WOMBAT CARD E-PAYMENT", "acc-checking", 150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=3),
         side("ONLINE TRANSFER FROM CHECKING XX1001", "acc-savings", -300.00, "TRANSFER_IN_ACCOUNT_TRANSFER", day=5),
         side("ONLINE TRANSFER TO SAVINGS XX2002", "acc-checking", 300.00, "TRANSFER_OUT_SAVINGS", day=5),
-        side("ZELLE PAYMENT TO JOHN DOE", "acc-checking", 80.00, "TRANSFER_OUT_TRANSFER_OUT_FROM_APPS", day=7),
+        side("PAYAPP PAYMENT TO JOHN DOE", "acc-checking", 80.00, "TRANSFER_OUT_TRANSFER_OUT_FROM_APPS", day=7),
         side("PAYMENT RECEIVED THANK YOU", "acc-auto", -200.00, "TRANSFER_IN_OTHER_TRANSFER_IN", day=9),
-        side("TOYOTA FINANCIAL PAYMENT", "acc-checking", 200.00, "LOAN_PAYMENTS_CAR_PAYMENT", day=9),
+        side("KESTREL AUTO FINANCE PAYMENT", "acc-checking", 200.00, "LOAN_PAYMENTS_CAR_PAYMENT", day=9),
     ])
 
 
 def sandbox_gingham():
     return link_response([CARD], [
-        side("Whole Foods", "acc-card", 60.00, "FOOD_AND_DRINK_GROCERIES", day=1),
-        side("Olive Garden", "acc-card", 40.00, "FOOD_AND_DRINK_RESTAURANT", day=2),
+        side("Pinecone Market", "acc-card", 60.00, "FOOD_AND_DRINK_GROCERIES", day=1),
+        side("Noodle Hall", "acc-card", 40.00, "FOOD_AND_DRINK_RESTAURANT", day=2),
         side("PAYMENT THANK YOU", "acc-card", -500.00, "TRANSFER_IN_OTHER_TRANSFER_IN", day=2),
-        side("Delta Air Lines", "acc-card", 400.00, "TRAVEL_FLIGHTS", day=3),
-        side("Whole Foods", "acc-card", -25.00, "FOOD_AND_DRINK_GROCERIES", day=4),
-        side("Starbucks", "acc-card", 5.00, "FOOD_AND_DRINK_COFFEE", day=6),
+        side("Heron Airways", "acc-card", 400.00, "TRAVEL_FLIGHTS", day=3),
+        side("Pinecone Market", "acc-card", -25.00, "FOOD_AND_DRINK_GROCERIES", day=4),
+        side("Bean Counter Coffee", "acc-card", 5.00, "FOOD_AND_DRINK_COFFEE", day=6),
         side("ZQX HOLDINGS 4471", "acc-card", 12.00, "ENTERTAINMENT_VIDEO_GAMES", day=8),
         ], institution_name="First Gingham Credit Union")
 
 
 def sandbox_tartan():
     return link_response([account(account_id="acc-tartan", type="depository", subtype="checking")], [
-        side("Chipotle", "acc-tartan", 14.00, "FOOD_AND_DRINK_FAST_FOOD", day=6),
-        side("Safeway", "acc-tartan", 52.00, "FOOD_AND_DRINK_GROCERIES", day=11),
+        side("Burrito Barn", "acc-tartan", 14.00, "FOOD_AND_DRINK_FAST_FOOD", day=6),
+        side("Juniper Foods", "acc-tartan", 52.00, "FOOD_AND_DRINK_GROCERIES", day=11),
     ], institution_name="Tartan Bank")
 
 
@@ -180,8 +180,8 @@ class StatementSpendTest(unittest.TestCase):
 
     def test_deposit_account_shows_money_in_as_positive_and_spend_is_unchanged(self):
         summary = statement("deposit",
-            ("Trader Joe's", 85.00, "Groceries"),
-            ("Whole Foods refund", -25.00, "Groceries"),
+            ("Thistle Grocery", 85.00, "Groceries"),
+            ("Pinecone Market refund", -25.00, "Groceries"),
             ("Payment to card", 500.00, "Payments & Credits"),
             ("ACME Corp payroll", -2500.00, "Income & Deposits"),
         )
@@ -193,7 +193,7 @@ class StatementSpendTest(unittest.TestCase):
 
     def test_liability_amounts_are_unchanged(self):
         summary = statement("liability",
-            ("Whole Foods", 60.00, "Groceries"),
+            ("Pinecone Market", 60.00, "Groceries"),
             ("Payment thank you", -500.00, "Payments & Credits"),
         )
         self.assertEqual([tx.amount for tx in summary.transactions], [60.00, -500.00])

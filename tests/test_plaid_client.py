@@ -1,10 +1,12 @@
 import json
+import tempfile
 import unittest
 from datetime import date
+from pathlib import Path
 
 import plaid
 
-from src.plaid_client import create_link_token, fetch_links, get_transactions, links_needing_relink
+from src.plaid_client import create_link_token, fetch_links, get_public_token_from_link_session, get_transactions, links_needing_relink, load_tokens, remove_token, save_token
 
 
 def plaid_error(error_code):
@@ -81,6 +83,61 @@ class CreateLinkTokenTest(unittest.TestCase):
         create_link_token(client=client)
         self.assertNotIn("access_token", client.request)
         self.assertEqual(client.request["products"], ["transactions"])
+
+
+class FakeLinkSessionClient:
+    """Plaid's /link/token/get, returning link_sessions, or raising error."""
+
+    def __init__(self, link_sessions=None, error=None):
+        self.link_sessions = link_sessions
+        self.error = error
+
+    def link_token_get(self, request):
+        if self.error:
+            raise self.error
+        return {"link_sessions": self.link_sessions}
+
+
+def finished_session(*public_tokens):
+    item_add_results = [{"public_token": token} for token in public_tokens]
+    return {"finished_at": "2026-10-18T12:00:00Z", "results": {"item_add_results": item_add_results}}
+
+
+class GetPublicTokenFromLinkSessionTest(unittest.TestCase):
+    def test_a_finished_session_gives_its_public_token(self):
+        client = FakeLinkSessionClient([{}, finished_session("public-token-gingham")])
+        self.assertEqual(get_public_token_from_link_session("link-token", client=client), "public-token-gingham")
+
+    def test_a_session_without_a_public_token_gives_none(self):
+        for link_sessions in [None, [], [{}], [{"results": None}], [finished_session()], [finished_session(None)]]:
+            with self.subTest(link_sessions=link_sessions):
+                client = FakeLinkSessionClient(link_sessions)
+                self.assertIsNone(get_public_token_from_link_session("link-token", client=client))
+
+    def test_a_plaid_error_gives_none_so_polling_carries_on(self):
+        client = FakeLinkSessionClient(error=plaid_error("INVALID_LINK_TOKEN"))
+        self.assertIsNone(get_public_token_from_link_session("link-token", client=client))
+
+
+class TokenStoreTest(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.token_file = Path(directory.name) / ".plaid_tokens.sandbox.json"
+
+    def test_no_token_file_means_no_links(self):
+        self.assertEqual(load_tokens(self.token_file), {})
+
+    def test_saved_tokens_are_kept_and_a_removed_one_leaves_the_others(self):
+        save_token("item-gingham", "access-gingham", token_file=self.token_file)
+        save_token("item-platypus", "access-platypus", token_file=self.token_file)
+        remove_token("item-gingham", token_file=self.token_file)
+        self.assertEqual(load_tokens(self.token_file), {"item-platypus": "access-platypus"})
+
+    def test_removing_a_link_that_is_not_saved_changes_nothing(self):
+        save_token("item-gingham", "access-gingham", token_file=self.token_file)
+        remove_token("item-platypus", token_file=self.token_file)
+        self.assertEqual(load_tokens(self.token_file), {"item-gingham": "access-gingham"})
 
 
 class FetchLinksTest(unittest.TestCase):

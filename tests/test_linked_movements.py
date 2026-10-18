@@ -97,7 +97,7 @@ class PairingTest(unittest.TestCase):
         movements = pair_linked_movements([
             link_response([CHECKING, CARD], [
                 side("ONLINE TRANSFER OUT", "acc-checking", 25.00, "TRANSFER_OUT_ACCOUNT_TRANSFER"),
-                side("Whole Foods", "acc-card", -25.00, "FOOD_AND_DRINK_GROCERIES"),
+                side("Pinecone Market", "acc-card", -25.00, "FOOD_AND_DRINK_GROCERIES"),
             ]),
         ])
         self.assertEqual(pairs(movements), [])
@@ -114,27 +114,27 @@ class PairingTest(unittest.TestCase):
         self.assertEqual(flagged(movements), ["PAYMENT TO CARD"])
 
     def test_sandbox_fixture_links(self):
-        # What Plaid returned for docs/plaid-testing.md Phase 1 (seed_sandbox.py inspect)
+        # Shaped like what Plaid returned for docs/plaid-testing.md Phase 1 (seed_sandbox.py inspect), with neutral names
         platypus = link_response([CHECKING, SAVINGS, AUTO_LOAN], [
             side("ACME CORP PAYROLL", "acc-checking", -2500.00, "INCOME_SALARY", day=1),
-            side("Trader Joe's", "acc-checking", 85.00, "FOOD_AND_DRINK_GROCERIES", day=1),
+            side("Thistle Grocery", "acc-checking", 85.00, "FOOD_AND_DRINK_GROCERIES", day=1),
             side("PAYMENT TO FIRST GINGHAM CARD", "acc-checking", 500.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=2),
-            side("DISCOVER E-PAYMENT", "acc-checking", 150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=3),
+            side("WOMBAT CARD E-PAYMENT", "acc-checking", 150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=3),
             side("ONLINE TRANSFER FROM CHECKING XX1001", "acc-savings", -300.00, "TRANSFER_IN_ACCOUNT_TRANSFER", day=5),
             side("ONLINE TRANSFER TO SAVINGS XX2002", "acc-checking", 300.00, "TRANSFER_OUT_SAVINGS", day=5),
-            side("ZELLE PAYMENT TO JOHN DOE", "acc-checking", 80.00, "TRANSFER_OUT_TRANSFER_OUT_FROM_APPS", day=7),
+            side("PAYAPP PAYMENT TO JOHN DOE", "acc-checking", 80.00, "TRANSFER_OUT_TRANSFER_OUT_FROM_APPS", day=7),
             side("PAYMENT RECEIVED THANK YOU", "acc-auto", -200.00, "TRANSFER_IN_OTHER_TRANSFER_IN", day=9),
-            side("TOYOTA FINANCIAL PAYMENT", "acc-checking", 200.00, "LOAN_PAYMENTS_CAR_PAYMENT", day=9),
+            side("KESTREL AUTO FINANCE PAYMENT", "acc-checking", 200.00, "LOAN_PAYMENTS_CAR_PAYMENT", day=9),
         ])
         gingham = link_response([CARD], [
-            side("Whole Foods", "acc-card", 60.00, "FOOD_AND_DRINK_GROCERIES", day=1),
+            side("Pinecone Market", "acc-card", 60.00, "FOOD_AND_DRINK_GROCERIES", day=1),
             side("PAYMENT THANK YOU", "acc-card", -500.00, "TRANSFER_IN_OTHER_TRANSFER_IN", day=2),
-            side("Whole Foods", "acc-card", -25.00, "FOOD_AND_DRINK_GROCERIES", day=4),
+            side("Pinecone Market", "acc-card", -25.00, "FOOD_AND_DRINK_GROCERIES", day=4),
             side("ZQX HOLDINGS 4471", "acc-card", 12.00, "ENTERTAINMENT_VIDEO_GAMES", day=8),
         ], institution_name="First Gingham Credit Union")
         tartan = link_response([account(account_id="acc-tartan", type="depository", subtype="checking")], [
-            side("Chipotle", "acc-tartan", 14.00, "FOOD_AND_DRINK_FAST_FOOD", day=6),
-            side("Safeway", "acc-tartan", 52.00, "FOOD_AND_DRINK_GROCERIES", day=11),
+            side("Burrito Barn", "acc-tartan", 14.00, "FOOD_AND_DRINK_FAST_FOOD", day=6),
+            side("Juniper Foods", "acc-tartan", 52.00, "FOOD_AND_DRINK_GROCERIES", day=11),
         ], institution_name="Tartan Bank")
 
         movements = pair_linked_movements([platypus, gingham, tartan])
@@ -142,23 +142,23 @@ class PairingTest(unittest.TestCase):
         self.assertEqual(pairs(movements), [
             ("PAYMENT TO FIRST GINGHAM CARD", "PAYMENT THANK YOU"),
             ("ONLINE TRANSFER TO SAVINGS XX2002", "ONLINE TRANSFER FROM CHECKING XX1001"),
-            ("TOYOTA FINANCIAL PAYMENT", "PAYMENT RECEIVED THANK YOU"),
+            ("KESTREL AUTO FINANCE PAYMENT", "PAYMENT RECEIVED THANK YOU"),
         ])
-        self.assertEqual(flagged(movements), ["DISCOVER E-PAYMENT"])
+        self.assertEqual(flagged(movements), ["WOMBAT CARD E-PAYMENT"])
 
 
 class UnpairedFlaggingTest(unittest.TestCase):
     def test_card_payment_to_an_unlinked_card_is_flagged(self):
         movements = pair_linked_movements([
-            link_response([CHECKING], [side("DISCOVER E-PAYMENT", "acc-checking", 150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")]),
+            link_response([CHECKING], [side("WOMBAT CARD E-PAYMENT", "acc-checking", 150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")]),
         ])
         self.assertEqual(pairs(movements), [])
-        self.assertEqual(flagged(movements), ["DISCOVER E-PAYMENT"])
+        self.assertEqual(flagged(movements), ["WOMBAT CARD E-PAYMENT"])
         self.assertEqual(movements.unpaired[0].direction, "paid")
 
     def test_transfer_out_to_someone_else_is_not_flagged(self):
         movements = pair_linked_movements([
-            link_response([CHECKING], [side("ZELLE PAYMENT TO JOHN DOE", "acc-checking", 80.00, "TRANSFER_OUT_TRANSFER_OUT_FROM_APPS")]),
+            link_response([CHECKING], [side("PAYAPP PAYMENT TO JOHN DOE", "acc-checking", 80.00, "TRANSFER_OUT_TRANSFER_OUT_FROM_APPS")]),
         ])
         self.assertEqual(flagged(movements), [])
 
@@ -171,7 +171,7 @@ class UnpairedFlaggingTest(unittest.TestCase):
 
     def test_money_in_to_a_deposit_account_from_someone_else_is_not_flagged(self):
         movements = pair_linked_movements([
-            link_response([CHECKING], [side("VENMO FROM JANE", "acc-checking", -40.00, "TRANSFER_IN_OTHER_TRANSFER_IN")]),
+            link_response([CHECKING], [side("PAYAPP FROM JANE", "acc-checking", -40.00, "TRANSFER_IN_OTHER_TRANSFER_IN")]),
         ])
         self.assertEqual(flagged(movements), [])
 
@@ -195,9 +195,9 @@ class SideCategoryTest(unittest.TestCase):
 
     def test_a_loan_payments_paying_side_is_mortgage_and_loans_and_the_loans_side_is_payments_and_credits(self):
         self.assertEqual(categories(link_response([CHECKING, AUTO_LOAN], [
-            side("TOYOTA FINANCIAL PAYMENT", "acc-checking", 200.00, "LOAN_PAYMENTS_CAR_PAYMENT"),
+            side("KESTREL AUTO FINANCE PAYMENT", "acc-checking", 200.00, "LOAN_PAYMENTS_CAR_PAYMENT"),
             side("PAYMENT RECEIVED THANK YOU", "acc-auto", -200.00, "TRANSFER_IN_OTHER_TRANSFER_IN"),
-        ])), {"TOYOTA FINANCIAL PAYMENT": "Mortgage & Loans", "PAYMENT RECEIVED THANK YOU": "Payments & Credits"})
+        ])), {"KESTREL AUTO FINANCE PAYMENT": "Mortgage & Loans", "PAYMENT RECEIVED THANK YOU": "Payments & Credits"})
 
     def test_an_unpaired_payment_into_a_liability_is_payments_and_credits(self):
         self.assertEqual(categories(link_response([CARD], [

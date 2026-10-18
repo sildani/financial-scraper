@@ -2,7 +2,7 @@ import contextlib
 import io
 import unittest
 
-from main import parse_args, run_relink, run_statement_export
+from main import Action, parse_args, run_relink, run_statement_export
 from src.plaid_client import FailedLink, RelinkCheck
 from tests.test_analysis import statement
 from tests.test_plaid_client import plaid_error
@@ -19,16 +19,16 @@ def parse_error(argv) -> str:
 
 class ActionTest(unittest.TestCase):
     def test_a_bare_run_is_a_plaid_mode_export(self):
-        self.assertEqual(parse_args([]).action, "plaid-export")
+        self.assertIs(parse_args([]).action, Action.PLAID_EXPORT)
 
     def test_statements_flag_is_a_statement_mode_export(self):
-        self.assertEqual(parse_args(["--statements"]).action, "statement-export")
+        self.assertIs(parse_args(["--statements"]).action, Action.STATEMENT_EXPORT)
 
     def test_plaid_link_flag_links(self):
-        self.assertEqual(parse_args(["--plaid-link"]).action, "link")
+        self.assertIs(parse_args(["--plaid-link"]).action, Action.LINK)
 
     def test_relink_flag_relinks(self):
-        self.assertEqual(parse_args(["--relink"]).action, "relink")
+        self.assertIs(parse_args(["--relink"]).action, Action.RELINK)
 
 
 class FlagCombinationTest(unittest.TestCase):
@@ -44,7 +44,7 @@ class FlagCombinationTest(unittest.TestCase):
                 self.assertIn("-f/--force only applies with --statements", parse_error([*other_action, "-f"]))
 
     def test_export_window_belongs_to_plaid_mode_exports_only(self):
-        self.assertEqual(parse_args(["--since", "2026-01-01", "--until", "2026-03-31"]).action, "plaid-export")
+        self.assertIs(parse_args(["--since", "2026-01-01", "--until", "2026-03-31"]).action, Action.PLAID_EXPORT)
         for other_action in (["--statements"], ["--plaid-link"], ["--relink"]):
             with self.subTest(other_action):
                 self.assertIn("--since and --until only apply to a Plaid mode Export", parse_error([*other_action, "--since", "2026-01-01"]))
@@ -55,7 +55,7 @@ def fake_parse(failing=()):
     def parse(pdf_path, force_reprocess=False):
         if pdf_path.split("/")[-1] in failing:
             raise RuntimeError("status_code: 503, UNAVAILABLE")
-        return statement("liability", ("Whole Foods", 60.00, "Groceries"))
+        return statement("liability", ("Pinecone Market", 60.00, "Groceries"))
     return parse
 
 
