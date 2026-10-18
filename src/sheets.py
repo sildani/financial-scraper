@@ -3,7 +3,7 @@ from collections import defaultdict
 import time
 import gspread
 
-from src.schemas import StatementSummary
+from src.schemas import AccountSummary
 from src.config import SERVICE_ACCOUNT_FILE, current_plaid_environment
 
 
@@ -11,7 +11,7 @@ def get_gspread_client() -> gspread.Client:
     return gspread.service_account(filename=SERVICE_ACCOUNT_FILE)
 
 
-def export_statements_to_sheet(summaries: list[StatementSummary]):
+def export_statements_to_sheet(summaries: list[AccountSummary]):
     """Exports structured data to three timestamped tabs:
     - Summary_YYYYMMDDHHMMSS
     - Details_YYYYMMDDHHMMSS
@@ -34,11 +34,11 @@ def export_statements_to_sheet(summaries: list[StatementSummary]):
             # 1. Summary Sheet
             summary_ws = sh.add_worksheet(title=summary_tab, rows=100, cols=10)
             summary_ws.append_row([
-                "Issuer", "Account Name", "Statement Period", 
-                "Total Balance Due", "Payment Due Date", "Interest Charged", "Transaction Count"
+                "Institution", "Account Name", "Period",
+                "Balance", "Amount Due", "Due Date", "Interest Charged", "Transaction Count"
             ])
             summary_rows = [
-                [s.card_issuer, s.account_name, s.statement_period, s.total_balance_due, s.payment_due_date, s.interest_charged, len(s.transactions)]
+                [s.institution, s.account_name, s.period, s.balance, s.amount_due, s.due_date, s.interest_charged, len(s.transactions)]
                 for s in summaries
             ]
             summary_ws.append_rows(summary_rows)
@@ -46,13 +46,13 @@ def export_statements_to_sheet(summaries: list[StatementSummary]):
             # 2. Detailed Spending Sheet
             details_ws = sh.add_worksheet(title=details_tab, rows=2000, cols=10)
             details_ws.append_row([
-                "Issuer", "Account Name", "Date", "Raw Description", "Clean Merchant", "Amount", "Category"
+                "Institution", "Account Name", "Date", "Raw Description", "Clean Merchant", "Amount", "Category"
             ])
             details_rows = []
             for s in summaries:
                 for tx in s.transactions:
                     details_rows.append([
-                        s.card_issuer, s.account_name, tx.transaction_date, tx.description, tx.clean_merchant, tx.amount, tx.category.value
+                        s.institution, s.account_name, tx.transaction_date, tx.description, tx.clean_merchant, tx.amount, tx.category.value
                     ])
             details_ws.append_rows(details_rows)
 

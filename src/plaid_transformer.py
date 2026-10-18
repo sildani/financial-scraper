@@ -1,5 +1,5 @@
 from typing import List
-from src.schemas import PlaidTransaction, PlaidAccount, StatementSummary, LineItem, SpendingCategory, PlaidPersonalFinanceCategory
+from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, LineItem, SpendingCategory, PlaidPersonalFinanceCategory
 
 # A mapping from Plaid's personal finance categories to our fixed Categories, keyed by
 # PFCv2 detailed code or a prefix of one (the longest matching key wins). Taxonomy:
@@ -49,9 +49,26 @@ MERCHANT_KEYWORD_MAPPING = {
     "MCDONALD'S": SpendingCategory.RESTAURANTS_FAST_FOOD,
 }
 
-def transform_plaid_transactions(transactions: List[PlaidTransaction], account: PlaidAccount, start_date: str, end_date: str) -> StatementSummary:
+def summarize_link(response: dict, start_date: str, end_date: str) -> List[AccountSummary]:
     """
-    Transforms a list of Plaid transactions for a given account into a StatementSummary.
+    Summarizes every Account in one Link's /transactions/get response, including Accounts
+    with no Transactions in the Export window, since every Account's Balance belongs in the Export.
+    """
+    # Plaid documents institution_name as nullable, so fall back to the Institution's ID
+    item = response["item"]
+    institution = item.get("institution_name") or item.get("institution_id") or "Unknown Institution"
+    accounts = [PlaidAccount(**acc) for acc in response["accounts"]]
+    transactions = [PlaidTransaction(**tx) for tx in response.get("transactions", [])]
+    return [
+        transform_plaid_transactions(
+            [tx for tx in transactions if tx.account_id == account.account_id], account, start_date, end_date, institution
+        )
+        for account in accounts
+    ]
+
+def transform_plaid_transactions(transactions: List[PlaidTransaction], account: PlaidAccount, start_date: str, end_date: str, institution: str) -> AccountSummary:
+    """
+    Transforms a list of Plaid transactions for a given account into an AccountSummary.
     """
     line_items = []
     for tx in transactions:
@@ -96,10 +113,10 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
             )
         )
 
-    return StatementSummary(
-        card_issuer=account.name,
+    return AccountSummary(
+        institution=institution,
         account_name=f"{account.name} ({account.mask})",
-        statement_period=f"{start_date} to {end_date}",
-        total_balance_due=account.balances.current,
+        period=f"{start_date} to {end_date}",
+        balance=account.balances.current,
         transactions=line_items,
     )

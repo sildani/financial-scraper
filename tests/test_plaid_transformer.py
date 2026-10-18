@@ -1,7 +1,7 @@
 import unittest
 from datetime import date
 
-from src.plaid_transformer import transform_plaid_transactions
+from src.plaid_transformer import transform_plaid_transactions, summarize_link
 from src.schemas import PlaidAccount, PlaidTransaction, SpendingCategory
 
 
@@ -31,12 +31,12 @@ def transaction(name: str, **overrides) -> PlaidTransaction:
 
 
 def export(transactions, **account_overrides):
-    summary = transform_plaid_transactions(transactions, account(**account_overrides), "2026-09-17", "2026-10-17")
+    summary = transform_plaid_transactions(transactions, account(**account_overrides), "2026-09-17", "2026-10-17", "First Gingham Credit Union")
     return [item.description for item in summary.transactions]
 
 
 def displayed_amounts(transactions, **account_overrides):
-    summary = transform_plaid_transactions(transactions, account(**account_overrides), "2026-09-17", "2026-10-17")
+    summary = transform_plaid_transactions(transactions, account(**account_overrides), "2026-09-17", "2026-10-17", "First Gingham Credit Union")
     return {item.description: item.amount for item in summary.transactions}
 
 
@@ -79,7 +79,7 @@ class DisplayedAmountTest(unittest.TestCase):
 
 def category_for(plaid_detailed: str) -> SpendingCategory:
     tx = transaction("Merchant", personal_finance_category={"primary": plaid_detailed.split("_")[0], "detailed": plaid_detailed})
-    summary = transform_plaid_transactions([tx], account(), "2026-09-17", "2026-10-17")
+    summary = transform_plaid_transactions([tx], account(), "2026-09-17", "2026-10-17", "First Gingham Credit Union")
     return summary.transactions[0].category
 
 
@@ -130,6 +130,43 @@ class CategoryTest(unittest.TestCase):
             "RENT_AND_UTILITIES_RENT": SpendingCategory.OTHER,
             "SOMETHING_PLAID_ADDS_LATER": SpendingCategory.OTHER,
         })
+
+
+def link_response(accounts, transactions, institution_name="First Platypus Bank"):
+    # The shape of Plaid's /transactions/get response after to_dict()
+    return {
+        "accounts": [acc.model_dump() for acc in accounts],
+        "transactions": [tx.model_dump() for tx in transactions],
+        "item": {"item_id": "item-1", "institution_id": "ins_109508", "institution_name": institution_name},
+    }
+
+
+class LinkSummaryTest(unittest.TestCase):
+    def test_every_account_is_listed_even_without_transactions(self):
+        checking = account(account_id="acc-checking", name="Plaid Checking", mask="0000", type="depository", subtype="checking")
+        savings = account(account_id="acc-savings", name="Plaid Saving", mask="1111", type="depository", subtype="savings")
+        summaries = summarize_link(
+            link_response([checking, savings], [transaction("Trader Joe's", account_id="acc-checking")]),
+            "2026-09-17", "2026-10-17",
+        )
+        self.assertEqual(
+            [(s.account_name, len(s.transactions)) for s in summaries],
+            [("Plaid Checking (0000)", 1), ("Plaid Saving (1111)", 0)],
+        )
+
+    def test_institution_is_the_links_institution(self):
+        summaries = summarize_link(link_response([account()], [], institution_name="First Gingham Credit Union"), "2026-09-17", "2026-10-17")
+        self.assertEqual(summaries[0].institution, "First Gingham Credit Union")
+
+    def test_every_account_shows_its_balance(self):
+        dormant_savings = account(account_id="acc-savings", balances={"current": 5000.00, "iso_currency_code": "USD"}, type="depository", subtype="savings")
+        card = account(account_id="acc-card", balances={"current": 1250.00, "iso_currency_code": "USD"})
+        summaries = summarize_link(link_response([dormant_savings, card], []), "2026-09-17", "2026-10-17")
+        self.assertEqual([s.balance for s in summaries], [5000.00, 1250.00])
+
+    def test_amount_due_only_exists_in_statement_mode(self):
+        summary = summarize_link(link_response([account()], []), "2026-09-17", "2026-10-17")[0]
+        self.assertEqual((summary.amount_due, summary.due_date), (None, None))
 
 
 if __name__ == "__main__":

@@ -26,12 +26,13 @@ class LineItem(BaseModel):
     category: SpendingCategory = Field(description="Categorization based on vendor or transaction type")
 
 
-class StatementSummary(BaseModel):
-    card_issuer: str = Field(description="Name of the financial institution, e.g., Amex, Citi, Chase, Bank of America, Goldman Sachs")
+class AccountSummary(BaseModel):
+    institution: str = Field(description="Name of the financial institution, e.g., Amex, Citi, Chase, Bank of America, Goldman Sachs")
     account_name: str = Field(description="Account descriptor or last 4 digits (e.g., 'Amex Gold - 1004', 'Checking - 8821')")
-    statement_period: str = Field(description="Statement period string, e.g., 'Aug 01, 2026 - Aug 31, 2026'")
-    total_balance_due: float = Field(description="New balance, ending balance, or total amount due")
-    payment_due_date: Optional[str] = Field(default=None, description="Due date in YYYY-MM-DD format, if applicable")
+    period: str = Field(description="Statement period string, e.g., 'Aug 01, 2026 - Aug 31, 2026'")
+    balance: float = Field(description="The account's new or ending balance at the end of the statement period")
+    amount_due: Optional[float] = Field(default=None, description="Total amount due, only for a credit card or loan statement; null for checking or savings")
+    due_date: Optional[str] = Field(default=None, description="Payment due date in YYYY-MM-DD format, only for a credit card or loan statement; null for checking or savings")
     interest_charged: Optional[float] = Field(default=0.0, description="Total interest or fees charged, if applicable")
     transactions: List[LineItem] = Field(description="List of all transactions found in the statement")
 # --- Plaid Models ---

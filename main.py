@@ -10,8 +10,7 @@ from src.config import INPUT_DIR, current_plaid_environment
 from src.llm import process_statement_pdf
 from src.sheets import export_statements_to_sheet
 from src.plaid_client import create_link_token, exchange_public_token, get_transactions, load_tokens, get_public_token_from_link_session
-from src.schemas import PlaidTransaction, PlaidAccount
-from src.plaid_transformer import transform_plaid_transactions
+from src.plaid_transformer import summarize_link
 
 def main():
     parser = argparse.ArgumentParser(description="Financial Statement Scraper & Analyzer")
@@ -86,16 +85,10 @@ def main():
         for item_id, access_token in tokens.items():
             print(f"\nFetching transactions for Item ID: {item_id}")
             response = get_transactions(access_token, start_date, end_date)
-            
-            accounts = [PlaidAccount(**acc) for acc in response['accounts']]
-            transactions = [PlaidTransaction(**tx) for tx in response.get('transactions', [])]
 
-            for account in accounts:
-                account_transactions = [tx for tx in transactions if tx.account_id == account.account_id]
-                if account_transactions:
-                    summary = transform_plaid_transactions(account_transactions, account, start_date.isoformat(), end_date.isoformat())
-                    summaries.append(summary)
-                    print(f"   ✓ {summary.card_issuer} ({summary.account_name}): {len(summary.transactions)} transactions")
+            for summary in summarize_link(response, start_date.isoformat(), end_date.isoformat()):
+                summaries.append(summary)
+                print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
 
         if summaries:
             print("\nExporting aggregated data to Google Sheets...")
@@ -121,7 +114,7 @@ def main():
         try:
             summary = process_statement_pdf(pdf_path, force_reprocess=args.force)
             summaries.append(summary)
-            print(f"   ✓ {summary.card_issuer} ({summary.account_name}): {len(summary.transactions)} transactions")
+            print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
         except Exception as e:
             print(f"   ✗ Failed to process {filename}: {e}")
 
