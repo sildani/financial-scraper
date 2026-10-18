@@ -1,6 +1,7 @@
 from typing import List, Set
 from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, Transaction, SpendingCategory, link_institution, category_spend_and_income
 from src.linked_movements import LinkedMovements
+from src.export_window import ExportWindow
 
 # A mapping from Plaid's personal finance categories to our fixed Categories, keyed by
 # PFCv2 detailed code or a prefix of one (the longest matching key wins). Taxonomy:
@@ -40,7 +41,7 @@ PLAID_CATEGORY_MAPPING = {
     "LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT": SpendingCategory.MORTGAGE_LOANS,
 }
 
-def summarize_link(response: dict, start_date: str, end_date: str, movements: LinkedMovements) -> List[AccountSummary]:
+def summarize_link(response: dict, window: ExportWindow, movements: LinkedMovements) -> List[AccountSummary]:
     """
     Summarizes every Account in one Link's /transactions/get response, including Accounts
     with no Transactions in the Export window, since every Account's Balance belongs in the Export.
@@ -52,12 +53,12 @@ def summarize_link(response: dict, start_date: str, end_date: str, movements: Li
     movement_ids |= {side.transaction_id for side in movements.unpaired}
     return [
         transform_plaid_transactions(
-            [tx for tx in transactions if tx.account_id == account.account_id], account, start_date, end_date, institution, movement_ids
+            [tx for tx in transactions if tx.account_id == account.account_id], account, window, institution, movement_ids
         )
         for account in accounts
     ]
 
-def transform_plaid_transactions(transactions: List[PlaidTransaction], account: PlaidAccount, start_date: str, end_date: str, institution: str, movement_ids: Set[str] = frozenset()) -> AccountSummary:
+def transform_plaid_transactions(transactions: List[PlaidTransaction], account: PlaidAccount, window: ExportWindow, institution: str, movement_ids: Set[str] = frozenset()) -> AccountSummary:
     """
     Transforms a list of Plaid transactions for a given account into an AccountSummary.
     movement_ids are the transaction IDs of every Linked Movement side, paired or not.
@@ -111,7 +112,7 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
     return AccountSummary(
         institution=institution,
         account_name=account.label,
-        period=f"{start_date} to {end_date}",
+        period=f"{window.start.isoformat()} to {window.end.isoformat()}",
         account_kind=account.kind,
         balance=account.balances.current,
         transactions=posted,

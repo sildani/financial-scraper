@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from src.config import INPUT_DIR, current_plaid_environment
 from src.llm import process_statement_pdf
-from src.sheets import export_statements_to_sheet
+from src.sheets import export_to_sheet
 from src.plaid_client import (
     create_link_token, exchange_public_token, fetch_links, load_tokens, get_public_token_from_link_session,
     links_needing_relink, link_session_finished, link_error_code, error_needs_relink, FailedLink, FetchedLinks, RelinkCheck,
@@ -72,7 +72,7 @@ def run_plaid_export(tokens: dict, window: ExportWindow, spreadsheet=None) -> Pl
     # Spend depends on Linked Movements, so summarize only once they're paired
     summaries = []
     for response in responses:
-        for summary in summarize_link(response, window.start.isoformat(), window.end.isoformat(), movements):
+        for summary in summarize_link(response, window, movements):
             summaries.append(summary)
             print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
 
@@ -80,7 +80,7 @@ def run_plaid_export(tokens: dict, window: ExportWindow, spreadsheet=None) -> Pl
     if summaries:
         print("\nExporting aggregated data to Google Sheets...")
         missing = [link.institution for link in fetched.failed]
-        tabs = export_statements_to_sheet(summaries, movements, missing=missing, spreadsheet=spreadsheet)
+        tabs = export_to_sheet(summaries, movements, missing=missing, spreadsheet=spreadsheet)
         if missing:
             print(f"\n! Partial Export: missing {', '.join(missing)}")
         print("\nBatch process complete!")
@@ -172,7 +172,7 @@ def run_statement_export(pdf_paths: List[str], force: bool = False, parse=proces
         return StatementExport(failed=failed)
 
     print("\nExporting aggregated data to Google Sheets...")
-    tabs = export_statements_to_sheet(summaries, missing=failed, spreadsheet=spreadsheet)
+    tabs = export_to_sheet(summaries, missing=failed, spreadsheet=spreadsheet)
     print("\nBatch process complete!")
     if failed:
         print(f"\n! Partial Export: missing {', '.join(failed)}")

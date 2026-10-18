@@ -4,8 +4,10 @@ from datetime import date
 from src.plaid_transformer import transform_plaid_transactions, summarize_link
 from src.schemas import PlaidAccount, PlaidTransaction, SpendingCategory
 from src.linked_movements import LinkedMovements
+from src.export_window import ExportWindow
 
 NO_MOVEMENTS = LinkedMovements(paired=[], unpaired=[])
+WINDOW = ExportWindow(start=date(2026, 9, 17), end=date(2026, 10, 17))
 
 
 def account(**overrides) -> PlaidAccount:
@@ -34,12 +36,12 @@ def transaction(name: str, **overrides) -> PlaidTransaction:
 
 
 def export(transactions, **account_overrides):
-    summary = transform_plaid_transactions(transactions, account(**account_overrides), "2026-09-17", "2026-10-17", "First Gingham Credit Union")
+    summary = transform_plaid_transactions(transactions, account(**account_overrides), WINDOW, "First Gingham Credit Union")
     return [item.description for item in summary.transactions]
 
 
 def displayed_amounts(transactions, **account_overrides):
-    summary = transform_plaid_transactions(transactions, account(**account_overrides), "2026-09-17", "2026-10-17", "First Gingham Credit Union")
+    summary = transform_plaid_transactions(transactions, account(**account_overrides), WINDOW, "First Gingham Credit Union")
     return {item.description: item.amount for item in summary.transactions}
 
 
@@ -83,7 +85,7 @@ class DisplayedAmountTest(unittest.TestCase):
 def category_for(plaid_detailed: str | None, **overrides) -> SpendingCategory:
     pfc = {"primary": plaid_detailed.split("_")[0], "detailed": plaid_detailed} if plaid_detailed else None
     tx = transaction("Merchant", personal_finance_category=pfc, **overrides)
-    summary = transform_plaid_transactions([tx], account(), "2026-09-17", "2026-10-17", "First Gingham Credit Union")
+    summary = transform_plaid_transactions([tx], account(), WINDOW, "First Gingham Credit Union")
     return summary.transactions[0].category
 
 
@@ -158,7 +160,7 @@ class LinkSummaryTest(unittest.TestCase):
         savings = account(account_id="acc-savings", name="Plaid Saving", mask="1111", type="depository", subtype="savings")
         summaries = summarize_link(
             link_response([checking, savings], [transaction("Thistle Grocery", account_id="acc-checking")]),
-            "2026-09-17", "2026-10-17", NO_MOVEMENTS,
+            WINDOW, NO_MOVEMENTS,
         )
         self.assertEqual(
             [(s.account_name, len(s.transactions)) for s in summaries],
@@ -166,23 +168,23 @@ class LinkSummaryTest(unittest.TestCase):
         )
 
     def test_institution_is_the_links_institution(self):
-        summaries = summarize_link(link_response([account()], [], institution_name="First Gingham Credit Union"), "2026-09-17", "2026-10-17", NO_MOVEMENTS)
+        summaries = summarize_link(link_response([account()], [], institution_name="First Gingham Credit Union"), WINDOW, NO_MOVEMENTS)
         self.assertEqual(summaries[0].institution, "First Gingham Credit Union")
 
     def test_a_link_without_an_institution_name_or_id_is_named_by_its_item_id(self):
         # Plaid documents both as nullable
         response = {**link_response([account()], []), "item": {"item_id": "item-1", "institution_id": None, "institution_name": None}}
-        summaries = summarize_link(response, "2026-09-17", "2026-10-17", NO_MOVEMENTS)
+        summaries = summarize_link(response, WINDOW, NO_MOVEMENTS)
         self.assertEqual(summaries[0].institution, "item-1")
 
     def test_every_account_shows_its_balance(self):
         dormant_savings = account(account_id="acc-savings", balances={"current": 5000.00, "iso_currency_code": "USD"}, type="depository", subtype="savings")
         card = account(account_id="acc-card", balances={"current": 1250.00, "iso_currency_code": "USD"})
-        summaries = summarize_link(link_response([dormant_savings, card], []), "2026-09-17", "2026-10-17", NO_MOVEMENTS)
+        summaries = summarize_link(link_response([dormant_savings, card], []), WINDOW, NO_MOVEMENTS)
         self.assertEqual([s.balance for s in summaries], [5000.00, 1250.00])
 
     def test_amount_due_only_exists_in_statement_mode(self):
-        summary = summarize_link(link_response([account()], []), "2026-09-17", "2026-10-17", NO_MOVEMENTS)[0]
+        summary = summarize_link(link_response([account()], []), WINDOW, NO_MOVEMENTS)[0]
         self.assertEqual((summary.amount_due, summary.due_date), (None, None))
 
 
