@@ -10,7 +10,7 @@ from src.schemas import PlaidAccount, PlaidTransaction
 # https://plaid.com/documents/pfc-taxonomy-all.csv
 # Some Institutions file the card side of a Card Payment under LOAN_DISBURSEMENTS_ (#33).
 MOVEMENT_CATEGORY_PREFIXES = ("LOAN_PAYMENTS_", "LOAN_DISBURSEMENTS_", "TRANSFER_IN_", "TRANSFER_OUT_")
-MAX_DAYS_APART = 3
+MAX_DAYS_APART = 5
 LIABILITY_TYPES = ("credit", "loan")
 
 # Categories that mean money moved between two of your own Accounts, so a side without a
