@@ -80,8 +80,9 @@ class DisplayedAmountTest(unittest.TestCase):
         self.assertEqual(amounts, {"Payment received": -200.00})
 
 
-def category_for(plaid_detailed: str) -> SpendingCategory:
-    tx = transaction("Merchant", personal_finance_category={"primary": plaid_detailed.split("_")[0], "detailed": plaid_detailed})
+def category_for(plaid_detailed: str | None, **overrides) -> SpendingCategory:
+    pfc = {"primary": plaid_detailed.split("_")[0], "detailed": plaid_detailed} if plaid_detailed else None
+    tx = transaction("Merchant", personal_finance_category=pfc, **overrides)
     summary = transform_plaid_transactions([tx], account(), "2026-09-17", "2026-10-17", "First Gingham Credit Union")
     return summary.transactions[0].category
 
@@ -133,6 +134,13 @@ class CategoryTest(unittest.TestCase):
             "RENT_AND_UTILITIES_RENT": SpendingCategory.OTHER,
             "SOMETHING_PLAID_ADDS_LATER": SpendingCategory.OTHER,
         })
+
+    def test_missing_or_unmapped_plaid_category_goes_to_other_whatever_the_merchant(self):
+        # Merchant names once matched a keyword fallback that overrode Other (#24)
+        for merchant in ["DELTA AIR LINES", "STARBUCKS"]:
+            for unmapped_plaid_category in [None, "SOMETHING_PLAID_ADDS_LATER"]:
+                with self.subTest(merchant=merchant, plaid_detailed=unmapped_plaid_category):
+                    self.assertEqual(category_for(unmapped_plaid_category, merchant_name=merchant), SpendingCategory.OTHER)
 
 
 def link_response(accounts, transactions, institution_name="First Platypus Bank"):
