@@ -47,11 +47,22 @@ class PairingTest(unittest.TestCase):
         self.assertEqual(pairs(movements), [("PAYMENT TO CARD ENDING IN 9496", "PAYMENT THANK YOU - WEB")])
         self.assertEqual(flagged(movements), [])
 
-    def test_sides_more_than_three_days_apart_are_not_paired(self):
+    def test_sides_five_days_apart_are_paired(self):
+        # A weekend between the two posting dates can stretch a Card Payment to 5 days (#35)
         movements = pair_linked_movements([
             link_response([CHECKING, SAVINGS], [
                 side("ONLINE TRANSFER TO SAVINGS", "acc-checking", 300.00, "TRANSFER_OUT_SAVINGS", day=1),
-                side("ONLINE TRANSFER FROM CHECKING", "acc-savings", -300.00, "TRANSFER_IN_ACCOUNT_TRANSFER", day=5),
+                side("ONLINE TRANSFER FROM CHECKING", "acc-savings", -300.00, "TRANSFER_IN_ACCOUNT_TRANSFER", day=6),
+            ]),
+        ])
+        self.assertEqual(pairs(movements), [("ONLINE TRANSFER TO SAVINGS", "ONLINE TRANSFER FROM CHECKING")])
+        self.assertEqual(flagged(movements), [])
+
+    def test_sides_more_than_five_days_apart_are_not_paired(self):
+        movements = pair_linked_movements([
+            link_response([CHECKING, SAVINGS], [
+                side("ONLINE TRANSFER TO SAVINGS", "acc-checking", 300.00, "TRANSFER_OUT_SAVINGS", day=1),
+                side("ONLINE TRANSFER FROM CHECKING", "acc-savings", -300.00, "TRANSFER_IN_ACCOUNT_TRANSFER", day=7),
             ]),
         ])
         self.assertEqual(pairs(movements), [])
