@@ -49,7 +49,7 @@ A Transaction's amount as the Institution presents it, so its sign depends on th
 The money-out value of a Transaction that counts as spending, positive regardless of Account kind. Transfer Outs and loan payments are Spend; Card Payments, Internal Transfers and Income are not. A Refund is negative Spend. Analysis totals use Spend, never Displayed amount.
 
 **Refund**:
-Money returned by a merchant for an earlier purchase. It is negative Spend in the purchase's Category, so totals net out; it is never Income.
+Money returned by a merchant for an earlier purchase. It is negative Spend in the purchase's Category, so totals net out; it is never Income. One known exception: in Plaid mode, a Refund that Plaid files as a transfer-in can't be told apart from money in from someone else, so it is treated as Income on a Deposit account and as an unpaired Linked Movement side on a Liability.
 
 **Income**:
 Money in from outside your Accounts (wages, deposits). Reported separately and never netted against Spend.
