@@ -46,13 +46,13 @@ def displayed_amounts(transactions, **account_overrides):
 class PendingActivityTest(unittest.TestCase):
     def test_pending_activity_is_not_a_transaction(self):
         exported = export([
-            transaction("Whole Foods"),
-            transaction("Uber", pending=True),
+            transaction("Pinecone Market"),
+            transaction("Zippy Rides", pending=True),
         ])
-        self.assertEqual(exported, ["Whole Foods"])
+        self.assertEqual(exported, ["Pinecone Market"])
 
     def test_account_with_only_pending_activity_has_no_transactions(self):
-        self.assertEqual(export([transaction("Uber", pending=True)]), [])
+        self.assertEqual(export([transaction("Zippy Rides", pending=True)]), [])
 
 
 class DisplayedAmountTest(unittest.TestCase):
@@ -60,17 +60,17 @@ class DisplayedAmountTest(unittest.TestCase):
 
     def test_deposit_account_shows_money_in_as_positive(self):
         amounts = displayed_amounts(
-            [transaction("ACME Corp payroll", amount=-2500.00), transaction("Trader Joe's", amount=85.00)],
+            [transaction("ACME Corp payroll", amount=-2500.00), transaction("Thistle Grocery", amount=85.00)],
             type="depository", subtype="checking",
         )
-        self.assertEqual(amounts, {"ACME Corp payroll": 2500.00, "Trader Joe's": -85.00})
+        self.assertEqual(amounts, {"ACME Corp payroll": 2500.00, "Thistle Grocery": -85.00})
 
     def test_credit_card_shows_money_out_as_positive(self):
         amounts = displayed_amounts(
-            [transaction("Whole Foods", amount=60.00), transaction("Payment thank you", amount=-500.00)],
+            [transaction("Pinecone Market", amount=60.00), transaction("Payment thank you", amount=-500.00)],
             type="credit", subtype="credit card",
         )
-        self.assertEqual(amounts, {"Whole Foods": 60.00, "Payment thank you": -500.00})
+        self.assertEqual(amounts, {"Pinecone Market": 60.00, "Payment thank you": -500.00})
 
     def test_loan_shows_money_out_as_positive(self):
         amounts = displayed_amounts(
@@ -137,7 +137,7 @@ class CategoryTest(unittest.TestCase):
 
     def test_missing_or_unmapped_plaid_category_goes_to_other_whatever_the_merchant(self):
         # Merchant names once matched a keyword fallback that overrode Other (#24)
-        for merchant in ["DELTA AIR LINES", "STARBUCKS"]:
+        for merchant in ["HERON AIRWAYS", "BEAN COUNTER COFFEE"]:
             for unmapped_plaid_category in [None, "SOMETHING_PLAID_ADDS_LATER"]:
                 with self.subTest(merchant=merchant, plaid_detailed=unmapped_plaid_category):
                     self.assertEqual(category_for(unmapped_plaid_category, merchant_name=merchant), SpendingCategory.OTHER)
@@ -157,7 +157,7 @@ class LinkSummaryTest(unittest.TestCase):
         checking = account(account_id="acc-checking", name="Plaid Checking", mask="0000", type="depository", subtype="checking")
         savings = account(account_id="acc-savings", name="Plaid Saving", mask="1111", type="depository", subtype="savings")
         summaries = summarize_link(
-            link_response([checking, savings], [transaction("Trader Joe's", account_id="acc-checking")]),
+            link_response([checking, savings], [transaction("Thistle Grocery", account_id="acc-checking")]),
             "2026-09-17", "2026-10-17", NO_MOVEMENTS,
         )
         self.assertEqual(

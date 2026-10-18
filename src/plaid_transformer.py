@@ -1,5 +1,5 @@
 from typing import List, Set
-from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, Transaction, SpendingCategory, PlaidPersonalFinanceCategory, link_institution, category_spend_and_income
+from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, Transaction, SpendingCategory, link_institution, category_spend_and_income
 from src.linked_movements import LinkedMovements
 
 # A mapping from Plaid's personal finance categories to our fixed Categories, keyed by
@@ -77,7 +77,7 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
         if tx.personal_finance_category:
             # Find the best (longest) matching category prefix
             best_match_key = None
-            for plaid_category, mapped_category in PLAID_CATEGORY_MAPPING.items():
+            for plaid_category in PLAID_CATEGORY_MAPPING:
                 if tx.personal_finance_category.detailed.startswith(plaid_category):
                     if best_match_key is None or len(plaid_category) > len(best_match_key):
                         best_match_key = plaid_category
@@ -94,7 +94,7 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
                 # The other side of a Card Payment or loan payment, e.g. TRANSFER_IN_OTHER_TRANSFER_IN on the card (#32)
                 category, spend_amount = SpendingCategory.PAYMENTS_CREDITS, None
             elif is_transfer_in(tx):
-                spend_amount, income_amount = None, -tx.amount  # Money in from someone else, e.g. Venmo from a friend
+                spend_amount, income_amount = None, -tx.amount  # Money in from someone else, e.g. a payment app transfer from a friend
 
         posted.append(
             Transaction(

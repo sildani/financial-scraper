@@ -3,6 +3,7 @@ import sys
 import glob
 import argparse
 from datetime import date
+from enum import Enum
 import time
 import webbrowser
 from typing import List
@@ -178,11 +179,15 @@ def run_statement_export(pdf_paths: List[str], force: bool = False, parse=proces
         print("   Run --statements again without -f to retry only the failed Statements; the rest are cached.")
     return StatementExport(summaries=summaries, failed=failed, tabs=tabs)
 
+class Action(str, Enum):
+    """What a run does."""
+    PLAID_EXPORT = "plaid-export"  # The default: a Plaid mode Export
+    STATEMENT_EXPORT = "statement-export"
+    LINK = "link"
+    RELINK = "relink"
+
 def parse_args(argv=None) -> argparse.Namespace:
-    """
-    Parses the command line into args whose action says what the run does: "plaid-export" (the
-    default, a Plaid mode Export), "statement-export" (a Statement mode Export), "link" or "relink".
-    """
+    """Parses the command line into args whose action is the Action the run does."""
     parser = argparse.ArgumentParser(description="Financial Statement Scraper & Analyzer")
     # Without one of these, the run is a Plaid mode Export
     action = parser.add_mutually_exclusive_group()
@@ -219,19 +224,19 @@ def parse_args(argv=None) -> argparse.Namespace:
     args = parser.parse_args(argv)
 
     if args.statements:
-        args.action = "statement-export"
+        args.action = Action.STATEMENT_EXPORT
     elif args.plaid_link:
-        args.action = "link"
+        args.action = Action.LINK
     elif args.relink:
-        args.action = "relink"
+        args.action = Action.RELINK
     else:
-        args.action = "plaid-export"
+        args.action = Action.PLAID_EXPORT
 
     # A Statement's own period defines what it covers, so the Export window is Plaid mode only
-    if (args.since or args.until) and args.action != "plaid-export":
+    if (args.since or args.until) and args.action != Action.PLAID_EXPORT:
         parser.error("--since and --until only apply to a Plaid mode Export")
     # The cache it bypasses only holds parsed Statements
-    if args.force and args.action != "statement-export":
+    if args.force and args.action != Action.STATEMENT_EXPORT:
         parser.error("-f/--force only applies with --statements")
     return args
 
@@ -245,7 +250,7 @@ def main():
         sys.exit(f"Error: {e}")
     print(f"Environment: {environment.name}")
 
-    if args.action == "link":
+    if args.action == Action.LINK:
         link_token, hosted_link_url = create_link_token()
         print("\n--- Plaid Link Setup ---")
         public_token = run_hosted_link(hosted_link_url, lambda: get_public_token_from_link_session(link_token))
@@ -259,7 +264,7 @@ def main():
         print("   (This access token has been saved securely for future use.)")
         return
 
-    if args.action == "relink":
+    if args.action == Action.RELINK:
         check = links_needing_relink()
         if not check.needing and not check.unchecked:
             print("\nEvery Link is Active; nothing to re-link.")
@@ -268,7 +273,7 @@ def main():
             sys.exit("Error: some Links still need re-linking")
         return
 
-    if args.action == "plaid-export":
+    if args.action == Action.PLAID_EXPORT:
         print("\nFetching transactions from Plaid...")
         tokens = load_tokens()
         if not tokens:

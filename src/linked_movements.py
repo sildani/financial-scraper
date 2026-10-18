@@ -13,7 +13,7 @@ MOVEMENT_CATEGORY_PREFIXES = ("LOAN_PAYMENTS_", "LOAN_DISBURSEMENTS_", "TRANSFER
 MAX_DAYS_APART = 5
 
 # Categories that mean money moved between two of your own Accounts, so a side without a
-# counterpart is flagged. Other movement categories (Zelle, wires, withdrawals) can be money
+# counterpart is flagged. Other movement categories (payment apps, wires, withdrawals) can be money
 # to or from someone else, so an unpaired one is left alone.
 OWN_ACCOUNT_CATEGORY_PREFIXES = (
     "LOAN_PAYMENTS_",

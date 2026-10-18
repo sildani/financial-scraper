@@ -129,11 +129,6 @@ class PlaidPersonalFinanceCategory(BaseModel):
     primary: str
     detailed: str
 
-class PlaidTransactionsResponse(BaseModel):
-    accounts: List[PlaidAccount]
-    transactions: List[PlaidTransaction]
-    total_transactions: int
-
 
 def link_institution(item) -> str:
     """A Link's Institution name from Plaid's item, falling back to the Institution's ID, then the Link's item ID."""

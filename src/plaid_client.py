@@ -178,46 +178,38 @@ def link_session_finished(link_token: str) -> bool:
     return any(session.get("finished_at") for session in response.get("link_sessions") or [])
 
 
-def get_public_token_from_link_session(link_token: str) -> str | None:
+def get_public_token_from_link_session(link_token: str, client=None) -> str | None:
     """
     Polls the /link/token/get endpoint to see if the Link flow is complete.
     Returns the public_token if available, otherwise None.
     """
-    client = get_plaid_client()
-    request = LinkTokenGetRequest(link_token=link_token)
     try:
-        response = client.link_token_get(request)
-        
-        # The session data is in the top-level `link_sessions` list.
-        if hasattr(response, 'link_sessions') and response.link_sessions:
-            for session in response.link_sessions:
-                # A completed session will have a `results` object.
-                if hasattr(session, 'results') and session.results:
-                    # The results may contain multiple added items.
-                    if hasattr(session.results, 'item_add_results') and session.results.item_add_results:
-                        for item_result in session.results.item_add_results:
-                            if hasattr(item_result, 'public_token') and item_result.public_token:
-                                return item_result.public_token
-    except plaid.ApiException as e:
-        # This can happen if the token is expired or invalid, or if the session is not yet complete.
-        # For polling, it's safe to ignore API exceptions and return None.
-        pass
+        response = (client or get_plaid_client()).link_token_get(LinkTokenGetRequest(link_token=link_token))
+    except plaid.ApiException:
+        return None  # An expired or invalid token, or a session not yet complete: keep polling
+    for session in response.get("link_sessions") or []:
+        # A completed session has results, which may hold several added items
+        for item_result in (session.get("results") or {}).get("item_add_results") or []:
+            if item_result.get("public_token"):
+                return item_result["public_token"]
     return None
 
-def save_token(item_id, access_token):
-    tokens = load_tokens()
+def save_token(item_id, access_token, token_file=None):
+    tokens = load_tokens(token_file)
     tokens[item_id] = access_token
-    with open(current_plaid_environment().token_file, "w") as f:
-        json.dump(tokens, f, indent=2)
+    write_tokens(tokens, token_file)
 
-def remove_token(item_id):
-    tokens = load_tokens()
+def remove_token(item_id, token_file=None):
+    tokens = load_tokens(token_file)
     tokens.pop(item_id, None)
-    with open(current_plaid_environment().token_file, "w") as f:
+    write_tokens(tokens, token_file)
+
+def write_tokens(tokens: dict, token_file=None):
+    with open(token_file or current_plaid_environment().token_file, "w") as f:
         json.dump(tokens, f, indent=2)
 
-def load_tokens():
-    token_file = current_plaid_environment().token_file
+def load_tokens(token_file=None):
+    token_file = token_file or current_plaid_environment().token_file
     if not token_file.exists():
         return {}
     with open(token_file, "r") as f:
