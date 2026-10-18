@@ -79,25 +79,26 @@ def main():
             print("No Plaid access tokens found. Please run with --plaid-link to connect an account first.")
             return
             
-        summaries = []
         responses = []
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=30)
         
         for item_id, access_token in tokens.items():
             print(f"\nFetching transactions for Item ID: {item_id}")
-            response = get_transactions(access_token, start_date, end_date)
-            responses.append(response)
-
-            for summary in summarize_link(response, start_date.isoformat(), end_date.isoformat()):
-                summaries.append(summary)
-                print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
+            responses.append(get_transactions(access_token, start_date, end_date))
 
         # Card Payments and Internal Transfers cross Links, so pair over every Link at once
         movements = pair_linked_movements(responses)
         print(f"\nLinked Movements: {len(movements.paired)} paired, {len(movements.unpaired)} unpaired")
         for side in movements.unpaired:
             print(f"   ! Unpaired: {side.institution} ({side.account_name}) {side.date} {side.description} {side.amount:,.2f}")
+
+        # Spend depends on Linked Movements, so summarize only once they're paired
+        summaries = []
+        for response in responses:
+            for summary in summarize_link(response, start_date.isoformat(), end_date.isoformat(), movements):
+                summaries.append(summary)
+                print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
 
         if summaries:
             print("\nExporting aggregated data to Google Sheets...")

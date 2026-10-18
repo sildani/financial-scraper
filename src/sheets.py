@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
-from collections import defaultdict
 import time
 import gspread
 
 from src.schemas import AccountSummary
 from src.linked_movements import LinkedMovements, MovementSide
+from src.analysis import analyze
 from src.config import SERVICE_ACCOUNT_FILE, current_plaid_environment
 
 
@@ -52,34 +52,29 @@ def export_statements_to_sheet(summaries: list[AccountSummary], movements: Linke
             # 2. Detailed Spending Sheet
             details_ws = sh.add_worksheet(title=details_tab, rows=2000, cols=10)
             details_ws.append_row([
-                "Institution", "Account Name", "Date", "Raw Description", "Clean Merchant", "Amount", "Category"
+                "Institution", "Account Name", "Date", "Raw Description", "Clean Merchant", "Amount", "Category", "Spend"
             ])
             details_rows = []
             for s in summaries:
                 for tx in s.transactions:
                     details_rows.append([
-                        s.institution, s.account_name, tx.transaction_date, tx.description, tx.clean_merchant, tx.amount, tx.category.value
+                        s.institution, s.account_name, tx.transaction_date, tx.description, tx.clean_merchant, tx.amount, tx.category.value,
+                        "" if tx.spend() is None else tx.spend(),  # Blank when not Spend
                     ])
             details_ws.append_rows(details_rows)
 
-            # 3. Aggregated Analysis Sheet
+            # 3. Aggregated Analysis Sheet: Spend, never Displayed amount (ADR-0001)
             analysis_ws = sh.add_worksheet(title=analysis_tab, rows=500, cols=10)
-            
-            category_totals = defaultdict(float)
-            merchant_totals = defaultdict(float)
+            analysis = analyze(summaries)
 
-            for s in summaries:
-                for tx in s.transactions:
-                    category_totals[tx.category.value] += tx.amount
-                    merchant_totals[tx.clean_merchant] += tx.amount
+            analysis_rows = [["--- SPEND BY CATEGORY ---", ""], ["Category", "Spend"]]
+            analysis_rows.extend([cat, total] for cat, total in analysis.spend_by_category.items())
+            analysis_rows.append(["Total Spend", analysis.total_spend])
 
-            analysis_rows = [["--- SPEND BY CATEGORY ---", ""], ["Category", "Total Amount"]]
-            for cat, total in sorted(category_totals.items(), key=lambda x: x[1], reverse=True):
-                analysis_rows.append([cat, round(total, 2)])
+            analysis_rows.extend([["", ""], ["--- INCOME (not netted against Spend) ---", ""], ["Income", analysis.income]])
 
-            analysis_rows.extend([["", ""], ["--- TOP MERCHANTS BY SPEND ---", ""], ["Merchant", "Total Amount"]])
-            for merch, total in sorted(merchant_totals.items(), key=lambda x: x[1], reverse=True):
-                analysis_rows.append([merch, round(total, 2)])
+            analysis_rows.extend([["", ""], ["--- TOP MERCHANTS BY SPEND ---", ""], ["Merchant", "Spend"]])
+            analysis_rows.extend([merch, total] for merch, total in analysis.spend_by_merchant.items())
 
             analysis_ws.append_rows(analysis_rows)
 

@@ -25,6 +25,28 @@ class LineItem(BaseModel):
     amount: float = Field(description="Positive decimal value for spend/debits, negative for credits/payments/deposits")
     category: SpendingCategory = Field(description="Categorization based on vendor or transaction type")
 
+    # Methods, not fields, so they stay out of the Gemini output schema. Statement mode has no
+    # Linked Movements, so Spend follows Category alone; amounts are already positive for money out.
+    def spend(self) -> Optional[float]:
+        if self.category in (SpendingCategory.PAYMENTS_CREDITS, SpendingCategory.INCOME_DEPOSITS):
+            return None
+        return self.amount
+
+    def income(self) -> Optional[float]:
+        return -self.amount if self.category == SpendingCategory.INCOME_DEPOSITS else None
+
+
+class PlaidLineItem(LineItem):
+    """A Plaid mode Transaction, whose Spend is decided from Plaid's data and Linked Movements."""
+    spend_amount: Optional[float] = None  # None when the Transaction isn't Spend
+    income_amount: Optional[float] = None  # None when the Transaction isn't Income
+
+    def spend(self) -> Optional[float]:
+        return self.spend_amount
+
+    def income(self) -> Optional[float]:
+        return self.income_amount
+
 
 class AccountSummary(BaseModel):
     institution: str = Field(description="Name of the financial institution, e.g., Amex, Citi, Chase, Bank of America, Goldman Sachs")

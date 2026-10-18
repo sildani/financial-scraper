@@ -1,5 +1,6 @@
-from typing import List
-from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, LineItem, SpendingCategory, PlaidPersonalFinanceCategory
+from typing import List, Set
+from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, PlaidLineItem, SpendingCategory, PlaidPersonalFinanceCategory
+from src.linked_movements import LinkedMovements
 
 # A mapping from Plaid's personal finance categories to our fixed Categories, keyed by
 # PFCv2 detailed code or a prefix of one (the longest matching key wins). Taxonomy:
@@ -49,7 +50,7 @@ MERCHANT_KEYWORD_MAPPING = {
     "MCDONALD'S": SpendingCategory.RESTAURANTS_FAST_FOOD,
 }
 
-def summarize_link(response: dict, start_date: str, end_date: str) -> List[AccountSummary]:
+def summarize_link(response: dict, start_date: str, end_date: str, movements: LinkedMovements) -> List[AccountSummary]:
     """
     Summarizes every Account in one Link's /transactions/get response, including Accounts
     with no Transactions in the Export window, since every Account's Balance belongs in the Export.
@@ -59,16 +60,19 @@ def summarize_link(response: dict, start_date: str, end_date: str) -> List[Accou
     institution = item.get("institution_name") or item.get("institution_id") or "Unknown Institution"
     accounts = [PlaidAccount(**acc) for acc in response["accounts"]]
     transactions = [PlaidTransaction(**tx) for tx in response.get("transactions", [])]
+    movement_ids = {side.transaction_id for pair in movements.paired for side in pair}
+    movement_ids |= {side.transaction_id for side in movements.unpaired}
     return [
         transform_plaid_transactions(
-            [tx for tx in transactions if tx.account_id == account.account_id], account, start_date, end_date, institution
+            [tx for tx in transactions if tx.account_id == account.account_id], account, start_date, end_date, institution, movement_ids
         )
         for account in accounts
     ]
 
-def transform_plaid_transactions(transactions: List[PlaidTransaction], account: PlaidAccount, start_date: str, end_date: str, institution: str) -> AccountSummary:
+def transform_plaid_transactions(transactions: List[PlaidTransaction], account: PlaidAccount, start_date: str, end_date: str, institution: str, movement_ids: Set[str] = frozenset()) -> AccountSummary:
     """
     Transforms a list of Plaid transactions for a given account into an AccountSummary.
+    movement_ids are the transaction IDs of every Linked Movement side, paired or not.
     """
     line_items = []
     for tx in transactions:
@@ -103,13 +107,28 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
                     categorized = True
                     break
 
+        # Spend and Income are money-out and money-in values, so they use Plaid's own sign
+        spend_amount, income_amount = None, None
+        if category == SpendingCategory.INCOME_DEPOSITS:
+            income_amount = -tx.amount
+        elif category == SpendingCategory.PAYMENTS_CREDITS:
+            pass  # Card Payments and Internal Transfers, paired or not
+        elif tx.transaction_id in movement_ids and not is_loan_payment(tx, category):
+            pass  # The other side of a Card Payment or loan payment, e.g. TRANSFER_IN_OTHER_TRANSFER_IN on the card
+        elif is_transfer_in(tx):
+            income_amount = -tx.amount  # Money in from someone else, e.g. Venmo from a friend
+        else:
+            spend_amount = tx.amount
+
         line_items.append(
-            LineItem(
+            PlaidLineItem(
                 transaction_date=tx.date.isoformat(),
                 description=tx.name,
                 clean_merchant=tx.merchant_name or tx.name,
                 amount=amount,
                 category=category,
+                spend_amount=spend_amount,
+                income_amount=income_amount,
             )
         )
 
@@ -120,3 +139,12 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
         balance=account.balances.current,
         transactions=line_items,
     )
+
+
+def is_loan_payment(tx: PlaidTransaction, category: SpendingCategory) -> bool:
+    """The paying side of a loan payment, which is Spend; the loan's own side is only its counterpart."""
+    return category == SpendingCategory.MORTGAGE_LOANS and tx.amount > 0
+
+
+def is_transfer_in(tx: PlaidTransaction) -> bool:
+    return bool(tx.personal_finance_category) and tx.personal_finance_category.detailed.startswith("TRANSFER_IN_")

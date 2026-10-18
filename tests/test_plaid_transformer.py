@@ -3,6 +3,9 @@ from datetime import date
 
 from src.plaid_transformer import transform_plaid_transactions, summarize_link
 from src.schemas import PlaidAccount, PlaidTransaction, SpendingCategory
+from src.linked_movements import LinkedMovements
+
+NO_MOVEMENTS = LinkedMovements(paired=[], unpaired=[])
 
 
 def account(**overrides) -> PlaidAccount:
@@ -147,7 +150,7 @@ class LinkSummaryTest(unittest.TestCase):
         savings = account(account_id="acc-savings", name="Plaid Saving", mask="1111", type="depository", subtype="savings")
         summaries = summarize_link(
             link_response([checking, savings], [transaction("Trader Joe's", account_id="acc-checking")]),
-            "2026-09-17", "2026-10-17",
+            "2026-09-17", "2026-10-17", NO_MOVEMENTS,
         )
         self.assertEqual(
             [(s.account_name, len(s.transactions)) for s in summaries],
@@ -155,17 +158,17 @@ class LinkSummaryTest(unittest.TestCase):
         )
 
     def test_institution_is_the_links_institution(self):
-        summaries = summarize_link(link_response([account()], [], institution_name="First Gingham Credit Union"), "2026-09-17", "2026-10-17")
+        summaries = summarize_link(link_response([account()], [], institution_name="First Gingham Credit Union"), "2026-09-17", "2026-10-17", NO_MOVEMENTS)
         self.assertEqual(summaries[0].institution, "First Gingham Credit Union")
 
     def test_every_account_shows_its_balance(self):
         dormant_savings = account(account_id="acc-savings", balances={"current": 5000.00, "iso_currency_code": "USD"}, type="depository", subtype="savings")
         card = account(account_id="acc-card", balances={"current": 1250.00, "iso_currency_code": "USD"})
-        summaries = summarize_link(link_response([dormant_savings, card], []), "2026-09-17", "2026-10-17")
+        summaries = summarize_link(link_response([dormant_savings, card], []), "2026-09-17", "2026-10-17", NO_MOVEMENTS)
         self.assertEqual([s.balance for s in summaries], [5000.00, 1250.00])
 
     def test_amount_due_only_exists_in_statement_mode(self):
-        summary = summarize_link(link_response([account()], []), "2026-09-17", "2026-10-17")[0]
+        summary = summarize_link(link_response([account()], []), "2026-09-17", "2026-10-17", NO_MOVEMENTS)[0]
         self.assertEqual((summary.amount_due, summary.due_date), (None, None))
 
 
