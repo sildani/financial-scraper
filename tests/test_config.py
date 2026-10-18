@@ -29,8 +29,14 @@ class PlaidEnvironmentTest(unittest.TestCase):
 
     def test_unknown_environment_is_rejected(self):
         # development was retired by Plaid in June 2024
-        for name in ["development", "Sandbox", "prod", ""]:
+        for name in ["development", "Sandbox", "prod"]:
             with self.subTest(name=name), self.assertRaisesRegex(ValueError, "PLAID_ENV"):
+                plaid_environment(name, BOTH_SHEETS)
+
+    def test_unset_environment_is_rejected(self):
+        # Never fall back to Sandbox silently. A blank PLAID_ENV= in .env is unset too.
+        for name in [None, ""]:
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "PLAID_ENV is not set.*sandbox, production"):
                 plaid_environment(name, BOTH_SHEETS)
 
 
