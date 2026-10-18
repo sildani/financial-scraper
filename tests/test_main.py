@@ -3,8 +3,9 @@ import io
 import unittest
 
 from main import parse_args, run_relink, run_statement_export
-from src.plaid_client import FailedLink
+from src.plaid_client import FailedLink, RelinkCheck
 from tests.test_analysis import statement
+from tests.test_plaid_client import plaid_error
 from tests.test_sheets import FakeSpreadsheet
 
 
@@ -94,23 +95,30 @@ TOKENS = {"item-gingham": "access-gingham", "item-platypus": "access-platypus"}
 
 
 class FakeRelinkSessions:
-    """Hosted Link sessions for --relink: each times out or finishes, and Plaid then reports error_codes."""
-    def __init__(self, timing_out=(), error_codes=None):
+    """Hosted Link sessions for --relink: each times out, raises its Plaid error in session_errors,
+    or finishes, and Plaid then reports error_codes or raises its error in check_errors."""
+    def __init__(self, timing_out=(), error_codes=None, session_errors=None, check_errors=None):
         self.timing_out, self.error_codes, self.offered, self.checked = set(timing_out), error_codes or {}, [], []
+        self.session_errors, self.check_errors = session_errors or {}, check_errors or {}
 
     def session(self, access_token: str) -> bool:
         self.offered.append(access_token)
+        if access_token in self.session_errors:
+            raise plaid_error(self.session_errors[access_token])
         return access_token not in self.timing_out
 
     def error_code(self, access_token: str) -> str | None:
         self.checked.append(access_token)
+        if access_token in self.check_errors:
+            raise plaid_error(self.check_errors[access_token])
         return self.error_codes.get(access_token)
 
 
-def relink(sessions: FakeRelinkSessions, needing=(GINGHAM, PLATYPUS)):
+def relink(sessions: FakeRelinkSessions, needing=(GINGHAM, PLATYPUS), unchecked=()):
     stdout = io.StringIO()
     with contextlib.redirect_stdout(stdout):
-        result = run_relink(list(needing), TOKENS, relink_session=sessions.session, error_code=sessions.error_code)
+        check = RelinkCheck(needing=list(needing), unchecked=list(unchecked))
+        result = run_relink(check, TOKENS, relink_session=sessions.session, error_code=sessions.error_code)
     return result, stdout.getvalue()
 
 
@@ -137,6 +145,40 @@ class RelinkTest(unittest.TestCase):
         self.assertEqual(stdout.strip().splitlines()[-4:], [
             "Re-link summary:",
             "   ✗ First Gingham Credit Union still needs re-linking",
+            "   ✓ First Platypus Bank is re-linked",
+            "Run --relink again to retry the Links that still need it.",
+        ])
+
+    def test_a_plaid_error_during_a_session_leaves_that_link_needing_relinking_with_its_code(self):
+        sessions = FakeRelinkSessions(session_errors={"access-gingham": "ITEM_NOT_FOUND"})
+        result, stdout = relink(sessions)
+        self.assertEqual(sessions.offered, ["access-gingham", "access-platypus"])
+        self.assertEqual([(link.item_id, link.error_code) for link in result.needs_relink], [("item-gingham", "ITEM_NOT_FOUND")])
+        self.assertEqual(result.relinked, [PLATYPUS])
+        self.assertIn("   ✗ First Gingham Credit Union still needs re-linking (ITEM_NOT_FOUND)", stdout.splitlines())
+
+    def test_a_plaid_error_checking_a_finished_session_leaves_that_link_needing_relinking_with_its_code(self):
+        sessions = FakeRelinkSessions(check_errors={"access-gingham": "INTERNAL_SERVER_ERROR"})
+        result, stdout = relink(sessions)
+        self.assertEqual(sessions.offered, ["access-gingham", "access-platypus"])
+        self.assertEqual([(link.item_id, link.error_code) for link in result.needs_relink], [("item-gingham", "INTERNAL_SERVER_ERROR")])
+        self.assertIn("   ✗ First Gingham Credit Union still needs re-linking (INTERNAL_SERVER_ERROR)", stdout.splitlines())
+
+    def test_a_finished_session_is_relinked_when_plaid_reports_an_error_relinking_cannot_fix(self):
+        sessions = FakeRelinkSessions(error_codes={"access-gingham": "INSTITUTION_DOWN"})
+        result, stdout = relink(sessions)
+        self.assertEqual(([link.item_id for link in result.relinked], result.needs_relink), (["item-gingham", "item-platypus"], []))
+        self.assertIn("   ✓ First Gingham Credit Union is re-linked (Plaid reports INSTITUTION_DOWN)", stdout.splitlines())
+
+    def test_a_link_that_could_not_be_checked_is_reported_first_and_in_the_summary(self):
+        gone = FailedLink(item_id="item-gone", institution="item-gone", error_code="INVALID_ACCESS_TOKEN")
+        result, stdout = relink(FakeRelinkSessions(), needing=[PLATYPUS], unchecked=[gone])
+        self.assertEqual(result.unchecked, [gone])
+        lines = stdout.splitlines()
+        self.assertEqual(lines[0], "   ✗ item-gone couldn't be checked (INVALID_ACCESS_TOKEN)")
+        self.assertEqual(lines[-4:], [
+            "Re-link summary:",
+            "   ✗ item-gone couldn't be checked (INVALID_ACCESS_TOKEN)",
             "   ✓ First Platypus Bank is re-linked",
             "Run --relink again to retry the Links that still need it.",
         ])

@@ -110,8 +110,14 @@ class LinksNeedingRelinkTest(unittest.TestCase):
             institutions={"token-tartan": "Tartan Bank", "token-platypus": "First Platypus Bank", "token-gingham": "First Gingham Credit Union"},
             item_errors={"token-tartan": "ITEM_LOGIN_REQUIRED", "token-gingham": "INSTITUTION_DOWN"},
         )
-        needing = links_needing_relink(client=client, tokens={"item-tartan": "token-tartan", "item-platypus": "token-platypus", "item-gingham": "token-gingham"})
-        self.assertEqual([(link.item_id, link.institution, link.needs_relink) for link in needing], [("item-tartan", "Tartan Bank", True)])
+        check = links_needing_relink(client=client, tokens={"item-tartan": "token-tartan", "item-platypus": "token-platypus", "item-gingham": "token-gingham"})
+        self.assertEqual([(link.item_id, link.institution, link.needs_relink) for link in check.needing], [("item-tartan", "Tartan Bank", True)])
+
+    def test_a_link_that_cannot_be_checked_is_reported_by_item_id_and_the_others_still_checked(self):
+        client = FakePlaidClient([], institutions={"token-tartan": "Tartan Bank"}, item_errors={"token-tartan": "ITEM_LOGIN_REQUIRED"})
+        check = links_needing_relink(client=client, tokens={"item-gone": "token-gone", "item-tartan": "token-tartan"})
+        self.assertEqual([(link.item_id, link.institution, link.error_code) for link in check.unchecked], [("item-gone", "item-gone", "INVALID_ACCESS_TOKEN")])
+        self.assertEqual([link.item_id for link in check.needing], ["item-tartan"])
 
 
 if __name__ == "__main__":

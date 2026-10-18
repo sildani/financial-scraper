@@ -6,6 +6,7 @@ from datetime import date
 import time
 import webbrowser
 from typing import List
+import plaid
 from pydantic import BaseModel
 
 from src.config import INPUT_DIR, current_plaid_environment
@@ -13,7 +14,8 @@ from src.llm import process_statement_pdf
 from src.sheets import export_statements_to_sheet
 from src.plaid_client import (
     create_link_token, exchange_public_token, fetch_links, load_tokens, get_public_token_from_link_session,
-    links_needing_relink, link_session_finished, link_error_code, error_needs_relink, FailedLink, FetchedLinks,
+    links_needing_relink, link_session_finished, link_error_code, error_needs_relink, FailedLink, FetchedLinks, RelinkCheck,
+    error_code as plaid_error_code,
 )
 from src.plaid_transformer import summarize_link
 from src.linked_movements import pair_linked_movements, LinkedMovements
@@ -92,28 +94,59 @@ def hosted_relink_session(access_token: str) -> bool:
 class RelinkRun(BaseModel):
     relinked: List[FailedLink] = []
     needs_relink: List[FailedLink] = []
+    unchecked: List[FailedLink] = []  # Never offered: whether they need re-linking is unknown
 
-def run_relink(needing: List[FailedLink], tokens: dict, relink_session=hosted_relink_session, error_code=link_error_code) -> RelinkRun:
-    """Offers each Link in needing for re-linking in turn, then lists how each one ended."""
-    run = RelinkRun()
-    for link in needing:
+    @property
+    def complete(self) -> bool:
+        return not self.needs_relink and not self.unchecked
+
+def run_relink(check: RelinkCheck, tokens: dict, relink_session=hosted_relink_session, error_code=link_error_code) -> RelinkRun:
+    """Offers each Link in check.needing for re-linking in turn, then lists how each one ended."""
+    run = RelinkRun(unchecked=check.unchecked)
+    print_unchecked(run.unchecked)
+    for link in check.needing:
         print(f"\n--- Re-link {link.institution} ---")
         access_token = tokens[link.item_id]
-        # A timed-out session still needs re-linking, but the other Links are still offered
-        if relink_session(access_token) and not error_needs_relink(error_code(access_token)):
-            run.relinked.append(link)
-        else:
+        try:
+            # A timed-out session still needs re-linking, but the other Links are still offered
+            if not relink_session(access_token):
+                run.needs_relink.append(link)
+                continue
+            code = error_code(access_token)
+        except plaid.ApiException as e:
+            run.needs_relink.append(link.model_copy(update={"error_code": plaid_error_code(e)}))
+            continue
+        if error_needs_relink(code):
             run.needs_relink.append(link)
+        else:
+            # Re-linking can't fix another error, such as INSTITUTION_DOWN, so the login counts as repaired
+            run.relinked.append(link.model_copy(update={"error_code": code}) if code else link)
 
     print("\nRe-link summary:")
-    for link in needing:
-        if link in run.relinked:
-            print(f"   ✓ {link.institution} is re-linked")
-        else:
-            print(f"   ✗ {link.institution} still needs re-linking")
-    if run.needs_relink:
+    print_unchecked(run.unchecked)
+    ended = {link.item_id: relinked_line(link) for link in run.relinked}
+    ended |= {link.item_id: needs_relink_line(link) for link in run.needs_relink}
+    for link in check.needing:
+        print(ended[link.item_id])
+    if not run.complete:
         print("Run --relink again to retry the Links that still need it.")
     return run
+
+def other_error(link: FailedLink) -> str | None:
+    """The Link's Plaid error code, unless it's Needs re-link, which every offered Link started as."""
+    return None if error_needs_relink(link.error_code) else link.error_code
+
+def relinked_line(link: FailedLink) -> str:
+    code = other_error(link)
+    return f"   ✓ {link.institution} is re-linked" + (f" (Plaid reports {code})" if code else "")
+
+def needs_relink_line(link: FailedLink) -> str:
+    code = other_error(link)
+    return f"   ✗ {link.institution} still needs re-linking" + (f" ({code})" if code else "")
+
+def print_unchecked(links: List[FailedLink]):
+    for link in links:
+        print(f"   ✗ {link.institution} couldn't be checked ({link.error_code})")
 
 class StatementExport(BaseModel):
     summaries: List[AccountSummary] = []
@@ -227,11 +260,11 @@ def main():
         return
 
     if args.action == "relink":
-        needing = links_needing_relink()
-        if not needing:
+        check = links_needing_relink()
+        if not check.needing and not check.unchecked:
             print("\nEvery Link is Active; nothing to re-link.")
             return
-        if run_relink(needing, load_tokens()).needs_relink:
+        if not run_relink(check, load_tokens()).complete:
             sys.exit("Error: some Links still need re-linking")
         return
 
