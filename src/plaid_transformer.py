@@ -40,16 +40,6 @@ PLAID_CATEGORY_MAPPING = {
     "LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT": SpendingCategory.MORTGAGE_LOANS,
 }
 
-# Fallback mapping for when Plaid's category is missing or unhelpful.
-# Matches keywords in the merchant name (case-insensitive).
-MERCHANT_KEYWORD_MAPPING = {
-    "DELTA": SpendingCategory.TRAVEL,
-    "AMERICAN AIRLINES": SpendingCategory.TRAVEL,
-    "UNITED AIRLINES": SpendingCategory.TRAVEL,
-    "STARBUCKS": SpendingCategory.RESTAURANTS_FAST_FOOD,
-    "MCDONALD'S": SpendingCategory.RESTAURANTS_FAST_FOOD,
-}
-
 def summarize_link(response: dict, start_date: str, end_date: str, movements: LinkedMovements) -> List[AccountSummary]:
     """
     Summarizes every Account in one Link's /transactions/get response, including Accounts
@@ -86,7 +76,6 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
         
         # Try to map the Plaid category to our enum
         category = SpendingCategory.OTHER
-        categorized = False
         if tx.personal_finance_category:
             # Find the best (longest) matching category prefix
             best_match_key = None
@@ -97,15 +86,6 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
             
             if best_match_key:
                 category = PLAID_CATEGORY_MAPPING[best_match_key]
-                categorized = True
-        
-        # If Plaid category didn't yield a result, try matching merchant name
-        if not categorized and tx.merchant_name:
-            for keyword, mapped_category in MERCHANT_KEYWORD_MAPPING.items():
-                if keyword in tx.merchant_name.upper():
-                    category = mapped_category
-                    categorized = True
-                    break
 
         # Spend and Income are money-out and money-in values, so they use Plaid's own sign
         spend_amount, income_amount = None, None
