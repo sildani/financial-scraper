@@ -30,9 +30,14 @@ def transaction(name: str, **overrides) -> PlaidTransaction:
     return PlaidTransaction(**{**fields, **overrides})
 
 
-def export(transactions):
-    summary = transform_plaid_transactions(transactions, account(), "2026-09-17", "2026-10-17")
+def export(transactions, **account_overrides):
+    summary = transform_plaid_transactions(transactions, account(**account_overrides), "2026-09-17", "2026-10-17")
     return [item.description for item in summary.transactions]
+
+
+def displayed_amounts(transactions, **account_overrides):
+    summary = transform_plaid_transactions(transactions, account(**account_overrides), "2026-09-17", "2026-10-17")
+    return {item.description: item.amount for item in summary.transactions}
 
 
 class PendingActivityTest(unittest.TestCase):
@@ -45,6 +50,31 @@ class PendingActivityTest(unittest.TestCase):
 
     def test_account_with_only_pending_activity_has_no_transactions(self):
         self.assertEqual(export([transaction("Uber", pending=True)]), [])
+
+
+class DisplayedAmountTest(unittest.TestCase):
+    # Plaid's sign is positive for money out on every Account kind (ADR-0001)
+
+    def test_deposit_account_shows_money_in_as_positive(self):
+        amounts = displayed_amounts(
+            [transaction("ACME Corp payroll", amount=-2500.00), transaction("Trader Joe's", amount=85.00)],
+            type="depository", subtype="checking",
+        )
+        self.assertEqual(amounts, {"ACME Corp payroll": 2500.00, "Trader Joe's": -85.00})
+
+    def test_credit_card_shows_money_out_as_positive(self):
+        amounts = displayed_amounts(
+            [transaction("Whole Foods", amount=60.00), transaction("Payment thank you", amount=-500.00)],
+            type="credit", subtype="credit card",
+        )
+        self.assertEqual(amounts, {"Whole Foods": 60.00, "Payment thank you": -500.00})
+
+    def test_loan_shows_money_out_as_positive(self):
+        amounts = displayed_amounts(
+            [transaction("Payment received", amount=-200.00)],
+            type="loan", subtype="auto",
+        )
+        self.assertEqual(amounts, {"Payment received": -200.00})
 
 
 if __name__ == "__main__":

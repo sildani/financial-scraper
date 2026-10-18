@@ -64,10 +64,9 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
         if tx.pending:
             continue
 
-        # Plaid amounts are positive for debits, negative for credits.
-        # Our LineItem model expects the same, so we don't need to change the sign for spending.
-        # For credits/payments (which are negative in Plaid), we keep them negative.
-        amount = tx.amount
+        # Plaid amounts are positive for money out on every Account kind. The Displayed amount
+        # follows the Account's kind (ADR-0001), so a Deposit account shows money in as positive.
+        amount = -tx.amount if account.type == "depository" else tx.amount
         
         # Try to map the Plaid category to our enum
         category = SpendingCategory.OTHER
