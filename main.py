@@ -1,19 +1,209 @@
 import os
+import sys
 import glob
 import argparse
-from src.config import INPUT_DIR
+from datetime import date
+import time
+import webbrowser
+from typing import List
+from pydantic import BaseModel
+
+from src.config import INPUT_DIR, current_plaid_environment
 from src.llm import process_statement_pdf
 from src.sheets import export_statements_to_sheet
+from src.plaid_client import (
+    create_link_token, exchange_public_token, fetch_links, load_tokens, get_public_token_from_link_session,
+    links_needing_relink, link_session_finished, link_error_code, FetchedLinks,
+)
+from src.plaid_transformer import summarize_link
+from src.linked_movements import pair_linked_movements, LinkedMovements
+from src.export_window import export_window, history_warning, ExportWindow
+from src.schemas import AccountSummary
+
+def run_hosted_link(hosted_link_url, poll):
+    """Opens hosted Link in the browser and polls until poll() returns something truthy; None on timeout."""
+    print(f"1. Your browser will now open to complete the Plaid Link flow.")
+    print(f"   If it doesn't, please open this URL manually:")
+    print(f"   {hosted_link_url}")
+
+    webbrowser.open(hosted_link_url)
+
+    POLLING_INTERVAL_S = 2
+    TIMEOUT_S = 300  # 5 minutes
+    start_time = time.time()
+
+    print(f"\n2. Waiting for you to complete the flow in your browser... (this will time out in {int(TIMEOUT_S / 60)} minutes)")
+
+    while time.time() - start_time < TIMEOUT_S:
+        result = poll()
+        if result:
+            print("\n✓ Plaid Link flow completed successfully!")
+            return result
+        time.sleep(POLLING_INTERVAL_S)
+
+    print(f"\n✗ Plaid Link flow timed out after {int(TIMEOUT_S / 60)} minutes. Please try again.")
+    return None
+
+class PlaidExport(BaseModel):
+    fetched: FetchedLinks
+    movements: LinkedMovements | None = None  # None when no Link could be fetched
+    summaries: List[AccountSummary] = []
+    tabs: List[str] = []  # Empty when no Export was written
+
+def run_plaid_export(tokens: dict, window: ExportWindow, spreadsheet=None) -> PlaidExport:
+    """A Plaid mode Export of every Link in tokens over window, written to the Environment's Sheet."""
+    fetched = fetch_links(tokens, window.start, window.end)
+    responses = fetched.responses
+    for link in fetched.failed:
+        reason = "needs re-linking (run --relink)" if link.needs_relink else f"failed with {link.error_code}; try again later"
+        print(f"   ✗ {link.institution} {reason}")
+    if not responses:
+        return PlaidExport(fetched=fetched)
+
+    # Card Payments and Internal Transfers cross Links, so pair over every Link at once
+    movements = pair_linked_movements(responses)
+    print(f"\nLinked Movements: {len(movements.paired)} paired, {len(movements.unpaired)} unpaired")
+    for side in movements.unpaired:
+        print(f"   ! Unpaired: {side.institution} ({side.account_name}) {side.date} {side.description} {side.amount:,.2f}")
+
+    # Spend depends on Linked Movements, so summarize only once they're paired
+    summaries = []
+    for response in responses:
+        for summary in summarize_link(response, window.start.isoformat(), window.end.isoformat(), movements):
+            summaries.append(summary)
+            print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
+
+    tabs = []
+    if summaries:
+        print("\nExporting aggregated data to Google Sheets...")
+        missing = [link.institution for link in fetched.failed]
+        tabs = export_statements_to_sheet(summaries, movements, missing=missing, spreadsheet=spreadsheet)
+        if missing:
+            print(f"\n! Partial Export: missing {', '.join(missing)}")
+        print("\nBatch process complete!")
+    return PlaidExport(fetched=fetched, movements=movements, summaries=summaries, tabs=tabs)
+
+def parse_args(argv=None) -> argparse.Namespace:
+    """
+    Parses the command line into args whose mode says what the run does: "plaid" (the default,
+    a Plaid mode Export), "statements" (a Statement mode Export), "link" or "relink".
+    """
+    parser = argparse.ArgumentParser(description="Financial Statement Scraper & Analyzer")
+    # Without one of these, the run is a Plaid mode Export
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument(
+        "--statements",
+        action="store_true",
+        help=f"Statement mode: export from the Statement PDFs in {INPUT_DIR}/ instead of Plaid."
+    )
+    action.add_argument(
+        "--plaid-link",
+        action="store_true",
+        help="Start the Plaid Link flow to connect a new financial institution."
+    )
+    action.add_argument(
+        "--relink",
+        action="store_true",
+        help="Re-link every Link that needs it, in place, via Plaid Link update mode."
+    )
+    parser.add_argument(
+        "-f", "--force",
+        action="store_true",
+        help="Force re-processing of PDFs via Gemini API, bypassing local cache"
+    )
+    parser.add_argument(
+        "--since",
+        metavar="YYYY-MM-DD",
+        help="First day of the Export window (default: 30 days before --until). Plaid mode only."
+    )
+    parser.add_argument(
+        "--until",
+        metavar="YYYY-MM-DD",
+        help="Last day of the Export window (default: today). Plaid mode only."
+    )
+    args = parser.parse_args(argv)
+
+    if args.statements:
+        args.mode = "statements"
+    elif args.plaid_link:
+        args.mode = "link"
+    elif args.relink:
+        args.mode = "relink"
+    else:
+        args.mode = "plaid"
+
+    # A Statement's own period defines what it covers, so the Export window is Plaid mode only
+    if (args.since or args.until) and args.mode != "plaid":
+        parser.error("--since and --until only apply to a Plaid mode Export")
+    # The cache it bypasses only holds parsed Statements
+    if args.force and args.mode != "statements":
+        parser.error("-f/--force only applies with --statements")
+    return args
 
 def main():
-    parser = argparse.ArgumentParser(description="Financial Statement Scraper & Analyzer")
-    parser.add_argument(
-        "-f", "--force", 
-        action="store_true", 
-        help="Force re-processing via Gemini API, bypassing local cache"
-    )
-    args = parser.parse_args()
+    args = parse_args()
 
+    # Fail before any work: every run reads or writes Environment-specific Links and Sheets
+    try:
+        environment = current_plaid_environment()
+    except ValueError as e:
+        sys.exit(f"Error: {e}")
+    print(f"Environment: {environment.name}")
+
+    if args.mode == "link":
+        link_token, hosted_link_url = create_link_token()
+        print("\n--- Plaid Link Setup ---")
+        public_token = run_hosted_link(hosted_link_url, lambda: get_public_token_from_link_session(link_token))
+        if not public_token:
+            return
+
+        access_token, item_id = exchange_public_token(public_token.strip())
+        print(f"\n✓ Successfully exchanged public token for an access token.")
+        print(f"   - Item ID: {item_id}")
+        print("   (This access token has been saved securely for future use.)")
+        return
+
+    if args.mode == "relink":
+        needing = links_needing_relink()
+        if not needing:
+            print("\nEvery Link is Active; nothing to re-link.")
+            return
+        tokens = load_tokens()
+        for link in needing:
+            # Update mode repairs the Link in place, so its access token and the token file stay as they are
+            link_token, hosted_link_url = create_link_token(access_token=tokens[link.item_id])
+            print(f"\n--- Re-link {link.institution} ---")
+            if not run_hosted_link(hosted_link_url, lambda: link_session_finished(link_token)):
+                return
+            if link_error_code(tokens[link.item_id]) == "ITEM_LOGIN_REQUIRED":
+                print(f"✗ {link.institution} still needs re-linking. Run --relink again.")
+            else:
+                print(f"✓ {link.institution} is re-linked.")
+        return
+
+    if args.mode == "plaid":
+        print("\nFetching transactions from Plaid...")
+        tokens = load_tokens()
+        if not tokens:
+            sys.exit(
+                f"Error: no Links in the {environment.name} Environment. Run --plaid-link to add one, "
+                f"or --statements to export from the Statement PDFs in {INPUT_DIR}/."
+            )
+
+        try:
+            window = export_window(args.since, args.until, date.today())
+        except ValueError as e:
+            sys.exit(f"Error: {e}")
+        print(f"Export window: {window.start} to {window.end}")
+        warning = history_warning(window, date.today())
+        if warning:
+            print(f"   ! {warning}")
+
+        if not run_plaid_export(tokens, window).fetched.responses:
+            sys.exit("Error: no Link could be fetched, so no Export was written")
+        return
+
+    # Statement mode: every other mode has returned
     pdf_files = glob.glob(os.path.join(INPUT_DIR, "*.pdf")) + glob.glob(os.path.join(INPUT_DIR, "*.PDF"))
     pdf_files = sorted(list(set(pdf_files)))
 
@@ -31,7 +221,7 @@ def main():
         try:
             summary = process_statement_pdf(pdf_path, force_reprocess=args.force)
             summaries.append(summary)
-            print(f"   ✓ {summary.card_issuer} ({summary.account_name}): {len(summary.transactions)} transactions")
+            print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
         except Exception as e:
             print(f"   ✗ Failed to process {filename}: {e}")
 

@@ -1,6 +1,7 @@
 from decimal import Decimal
 from enum import Enum
 from typing import Optional, List
+from datetime import date
 from pydantic import BaseModel, Field
 
 
@@ -9,6 +10,7 @@ class SpendingCategory(str, Enum):
     RESTAURANTS_FAST_FOOD = "Restaurants & Fast Food"
     CAR_FUEL = "Car Fuel"
     CAR_MAINTENANCE = "Car Maintenance"
+    TRAVEL = "Travel"
     UTILITIES_SUBSCRIPTIONS = "Utilities & Subscriptions"
     PAYMENTS_CREDITS = "Payments & Credits"
     INCOME_DEPOSITS = "Income & Deposits"
@@ -23,12 +25,74 @@ class LineItem(BaseModel):
     amount: float = Field(description="Positive decimal value for spend/debits, negative for credits/payments/deposits")
     category: SpendingCategory = Field(description="Categorization based on vendor or transaction type")
 
+    # Methods, not fields, so they stay out of the Gemini output schema. Statement mode has no
+    # Linked Movements, so Spend follows Category alone; amounts are already positive for money out.
+    def spend(self) -> Optional[float]:
+        if self.category in (SpendingCategory.PAYMENTS_CREDITS, SpendingCategory.INCOME_DEPOSITS):
+            return None
+        return self.amount
 
-class StatementSummary(BaseModel):
-    card_issuer: str = Field(description="Name of the financial institution, e.g., Amex, Citi, Chase, Bank of America, Goldman Sachs")
+    def income(self) -> Optional[float]:
+        return -self.amount if self.category == SpendingCategory.INCOME_DEPOSITS else None
+
+
+class PlaidLineItem(LineItem):
+    """A Plaid mode Transaction, whose Spend is decided from Plaid's data and Linked Movements."""
+    spend_amount: Optional[float] = None  # None when the Transaction isn't Spend
+    income_amount: Optional[float] = None  # None when the Transaction isn't Income
+
+    def spend(self) -> Optional[float]:
+        return self.spend_amount
+
+    def income(self) -> Optional[float]:
+        return self.income_amount
+
+
+class AccountSummary(BaseModel):
+    institution: str = Field(description="Name of the financial institution, e.g., Amex, Citi, Chase, Bank of America, Goldman Sachs")
     account_name: str = Field(description="Account descriptor or last 4 digits (e.g., 'Amex Gold - 1004', 'Checking - 8821')")
-    statement_period: str = Field(description="Statement period string, e.g., 'Aug 01, 2026 - Aug 31, 2026'")
-    total_balance_due: float = Field(description="New balance, ending balance, or total amount due")
-    payment_due_date: Optional[str] = Field(default=None, description="Due date in YYYY-MM-DD format, if applicable")
+    period: str = Field(description="Statement period string, e.g., 'Aug 01, 2026 - Aug 31, 2026'")
+    balance: float = Field(description="The account's new or ending balance at the end of the statement period")
+    amount_due: Optional[float] = Field(default=None, description="Total amount due, only for a credit card or loan statement; null for checking or savings")
+    due_date: Optional[str] = Field(default=None, description="Payment due date in YYYY-MM-DD format, only for a credit card or loan statement; null for checking or savings")
     interest_charged: Optional[float] = Field(default=0.0, description="Total interest or fees charged, if applicable")
     transactions: List[LineItem] = Field(description="List of all transactions found in the statement")
+# --- Plaid Models ---
+
+class PlaidAccountBalances(BaseModel):
+    available: Optional[float] = None
+    current: float
+    limit: Optional[float] = None
+    iso_currency_code: str
+    unofficial_currency_code: Optional[str] = None
+
+class PlaidAccount(BaseModel):
+    account_id: str
+    balances: PlaidAccountBalances
+    mask: str
+    name: str
+    official_name: Optional[str] = None
+    type: str
+    subtype: str
+
+class PlaidTransaction(BaseModel):
+    account_id: str
+    amount: float
+    iso_currency_code: str
+    category: Optional[List[str]] = None
+    category_id: Optional[str] = None
+    date: date
+    name: str
+    merchant_name: Optional[str] = None
+    pending: bool
+    transaction_id: str
+    personal_finance_category: Optional['PlaidPersonalFinanceCategory'] = None
+    
+class PlaidPersonalFinanceCategory(BaseModel):
+    primary: str
+    detailed: str
+
+class PlaidTransactionsResponse(BaseModel):
+    accounts: List[PlaidAccount]
+    transactions: List[PlaidTransaction]
+    total_transactions: int

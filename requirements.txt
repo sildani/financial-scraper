@@ -1,0 +1,6 @@
+pydantic-ai
+google-genai
+gspread
+pydantic
+python-dotenv
+plaid-python
