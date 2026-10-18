@@ -12,6 +12,7 @@ service_account.json
 
 # Cache & Local Data
 .cache/
+.scratch/
 input/
 *.pdf
 *.PDF
