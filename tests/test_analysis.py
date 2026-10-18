@@ -6,7 +6,7 @@ from src.plaid_transformer import summarize_link
 from tests.test_linked_movements import CHECKING, SAVINGS, AUTO_LOAN, CARD, side
 from src.schemas import AccountSummary, ParsedTransaction, Transaction
 from src.statements import statement_summary
-from tests.test_plaid_transformer import account, link_response
+from tests.test_plaid_transformer import WINDOW, account, link_response
 
 
 def plaid_analysis(*responses):
@@ -14,7 +14,7 @@ def plaid_analysis(*responses):
     summaries = [
         summary
         for response in responses
-        for summary in summarize_link(response, "2026-09-17", "2026-10-17", movements)
+        for summary in summarize_link(response, WINDOW, movements)
     ]
     return analyze(summaries)
 
