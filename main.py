@@ -13,7 +13,7 @@ from src.llm import process_statement_pdf
 from src.sheets import export_statements_to_sheet
 from src.plaid_client import (
     create_link_token, exchange_public_token, fetch_links, load_tokens, get_public_token_from_link_session,
-    links_needing_relink, link_session_finished, link_error_code, FetchedLinks,
+    links_needing_relink, link_session_finished, link_error_code, FailedLink, FetchedLinks,
 )
 from src.plaid_transformer import summarize_link
 from src.linked_movements import pair_linked_movements, LinkedMovements
@@ -41,7 +41,7 @@ def run_hosted_link(hosted_link_url, poll):
             return result
         time.sleep(POLLING_INTERVAL_S)
 
-    print(f"\n✗ Plaid Link flow timed out after {int(TIMEOUT_S / 60)} minutes. Please try again.")
+    print(f"\n✗ Plaid Link flow timed out after {int(TIMEOUT_S / 60)} minutes.")
     return None
 
 class PlaidExport(BaseModel):
@@ -82,6 +82,38 @@ def run_plaid_export(tokens: dict, window: ExportWindow, spreadsheet=None) -> Pl
             print(f"\n! Partial Export: missing {', '.join(missing)}")
         print("\nBatch process complete!")
     return PlaidExport(fetched=fetched, movements=movements, summaries=summaries, tabs=tabs)
+
+def hosted_relink_session(access_token: str) -> bool:
+    """Runs one Link's update mode session in hosted Link; False if it timed out."""
+    # Update mode repairs the Link in place, so its access token and the token file stay as they are
+    link_token, hosted_link_url = create_link_token(access_token=access_token)
+    return bool(run_hosted_link(hosted_link_url, lambda: link_session_finished(link_token)))
+
+class RelinkRun(BaseModel):
+    relinked: List[FailedLink] = []
+    needs_relink: List[FailedLink] = []
+
+def run_relink(needing: List[FailedLink], tokens: dict, relink_session=hosted_relink_session, error_code=link_error_code) -> RelinkRun:
+    """Offers each Link in needing for re-linking in turn, then lists how each one ended."""
+    run = RelinkRun()
+    for link in needing:
+        print(f"\n--- Re-link {link.institution} ---")
+        access_token = tokens[link.item_id]
+        # A timed-out session still needs re-linking, but the other Links are still offered
+        if relink_session(access_token) and error_code(access_token) != "ITEM_LOGIN_REQUIRED":
+            run.relinked.append(link)
+        else:
+            run.needs_relink.append(link)
+
+    print("\nRe-link summary:")
+    for link in needing:
+        if link in run.relinked:
+            print(f"   ✓ {link.institution} is re-linked")
+        else:
+            print(f"   ✗ {link.institution} still needs re-linking")
+    if run.needs_relink:
+        print("Run --relink again to retry the Links that still need it.")
+    return run
 
 class StatementExport(BaseModel):
     summaries: List[AccountSummary] = []
@@ -185,6 +217,7 @@ def main():
         print("\n--- Plaid Link Setup ---")
         public_token = run_hosted_link(hosted_link_url, lambda: get_public_token_from_link_session(link_token))
         if not public_token:
+            print("Please try again.")
             return
 
         access_token, item_id = exchange_public_token(public_token.strip())
@@ -198,17 +231,8 @@ def main():
         if not needing:
             print("\nEvery Link is Active; nothing to re-link.")
             return
-        tokens = load_tokens()
-        for link in needing:
-            # Update mode repairs the Link in place, so its access token and the token file stay as they are
-            link_token, hosted_link_url = create_link_token(access_token=tokens[link.item_id])
-            print(f"\n--- Re-link {link.institution} ---")
-            if not run_hosted_link(hosted_link_url, lambda: link_session_finished(link_token)):
-                return
-            if link_error_code(tokens[link.item_id]) == "ITEM_LOGIN_REQUIRED":
-                print(f"✗ {link.institution} still needs re-linking. Run --relink again.")
-            else:
-                print(f"✓ {link.institution} is re-linked.")
+        if run_relink(needing, load_tokens()).needs_relink:
+            sys.exit("Error: some Links still need re-linking")
         return
 
     if args.mode == "plaid":

@@ -2,7 +2,8 @@ import contextlib
 import io
 import unittest
 
-from main import parse_args, run_statement_export
+from main import parse_args, run_relink, run_statement_export
+from src.plaid_client import FailedLink
 from tests.test_analysis import statement
 from tests.test_sheets import FakeSpreadsheet
 
@@ -79,6 +80,60 @@ class StatementPartialExportTest(unittest.TestCase):
             export = run_statement_export(["input/card-a.pdf"], parse=fake_parse(failing=["card-a.pdf"]), spreadsheet=spreadsheet)
         self.assertEqual(spreadsheet.tabs, {})
         self.assertEqual((export.summaries, export.failed, export.tabs), ([], ["card-a.pdf"], []))
+
+
+GINGHAM = FailedLink(item_id="item-gingham", institution="First Gingham Credit Union", error_code="ITEM_LOGIN_REQUIRED")
+PLATYPUS = FailedLink(item_id="item-platypus", institution="First Platypus Bank", error_code="ITEM_LOGIN_REQUIRED")
+TOKENS = {"item-gingham": "access-gingham", "item-platypus": "access-platypus"}
+
+
+class FakeRelinkSessions:
+    """Hosted Link sessions for --relink: each times out or finishes, and Plaid then reports error_codes."""
+    def __init__(self, timing_out=(), error_codes=None):
+        self.timing_out, self.error_codes, self.offered, self.checked = set(timing_out), error_codes or {}, [], []
+
+    def session(self, access_token: str) -> bool:
+        self.offered.append(access_token)
+        return access_token not in self.timing_out
+
+    def error_code(self, access_token: str) -> str | None:
+        self.checked.append(access_token)
+        return self.error_codes.get(access_token)
+
+
+def relink(sessions: FakeRelinkSessions, needing=(GINGHAM, PLATYPUS)):
+    stdout = io.StringIO()
+    with contextlib.redirect_stdout(stdout):
+        result = run_relink(list(needing), TOKENS, relink_session=sessions.session, error_code=sessions.error_code)
+    return result, stdout.getvalue()
+
+
+class RelinkTest(unittest.TestCase):
+    def test_a_timed_out_link_still_needs_relinking_and_the_next_is_offered(self):
+        sessions = FakeRelinkSessions(timing_out=["access-gingham"])
+        result, _ = relink(sessions)
+        self.assertEqual(sessions.offered, ["access-gingham", "access-platypus"])
+        self.assertEqual((result.relinked, result.needs_relink), ([PLATYPUS], [GINGHAM]))
+
+    def test_a_timed_out_link_is_not_checked_with_plaid(self):
+        sessions = FakeRelinkSessions(timing_out=["access-gingham"])
+        relink(sessions)
+        self.assertEqual(sessions.checked, ["access-platypus"])
+
+    def test_a_finished_session_still_needs_relinking_while_plaid_says_so(self):
+        # The session ends even when sign-in failed or was abandoned
+        sessions = FakeRelinkSessions(error_codes={"access-gingham": "ITEM_LOGIN_REQUIRED"})
+        result, _ = relink(sessions)
+        self.assertEqual((result.relinked, result.needs_relink), ([PLATYPUS], [GINGHAM]))
+
+    def test_the_run_ends_by_listing_each_link_as_relinked_or_still_needing_it(self):
+        _, stdout = relink(FakeRelinkSessions(timing_out=["access-gingham"]))
+        self.assertEqual(stdout.strip().splitlines()[-4:], [
+            "Re-link summary:",
+            "   ✗ First Gingham Credit Union still needs re-linking",
+            "   ✓ First Platypus Bank is re-linked",
+            "Run --relink again to retry the Links that still need it.",
+        ])
 
 
 if __name__ == "__main__":

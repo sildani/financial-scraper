@@ -106,3 +106,4 @@ Instead of manually downloading PDF statements, you can connect directly to your
   python main.py --relink
   ```
 - This finds every Link that needs re-linking and opens Plaid Link in update mode for each one. The Link is repaired in place, so no second Link is added and the token file doesn't change.
+- If one Link's session times out, the run moves on to the next. It ends with a summary of which Links were re-linked and which still need it, and exits with an error if any still do.
