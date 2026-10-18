@@ -9,10 +9,37 @@ import webbrowser
 from src.config import INPUT_DIR, current_plaid_environment
 from src.llm import process_statement_pdf
 from src.sheets import export_statements_to_sheet
-from src.plaid_client import create_link_token, exchange_public_token, get_transactions, load_tokens, get_public_token_from_link_session
+from src.plaid_client import (
+    create_link_token, exchange_public_token, fetch_links, load_tokens, get_public_token_from_link_session,
+    links_needing_relink, link_session_finished, link_error_code,
+)
 from src.plaid_transformer import summarize_link
 from src.linked_movements import pair_linked_movements
 from src.export_window import export_window, history_warning
+
+def run_hosted_link(hosted_link_url, poll):
+    """Opens hosted Link in the browser and polls until poll() returns something truthy; None on timeout."""
+    print(f"1. Your browser will now open to complete the Plaid Link flow.")
+    print(f"   If it doesn't, please open this URL manually:")
+    print(f"   {hosted_link_url}")
+
+    webbrowser.open(hosted_link_url)
+
+    POLLING_INTERVAL_S = 2
+    TIMEOUT_S = 300  # 5 minutes
+    start_time = time.time()
+
+    print(f"\n2. Waiting for you to complete the flow in your browser... (this will time out in {int(TIMEOUT_S / 60)} minutes)")
+
+    while time.time() - start_time < TIMEOUT_S:
+        result = poll()
+        if result:
+            print("\n✓ Plaid Link flow completed successfully!")
+            return result
+        time.sleep(POLLING_INTERVAL_S)
+
+    print(f"\n✗ Plaid Link flow timed out after {int(TIMEOUT_S / 60)} minutes. Please try again.")
+    return None
 
 def main():
     parser = argparse.ArgumentParser(description="Financial Statement Scraper & Analyzer")
@@ -25,6 +52,11 @@ def main():
         "--plaid-link",
         action="store_true",
         help="Start the Plaid Link flow to connect a new financial institution."
+    )
+    parser.add_argument(
+        "--relink",
+        action="store_true",
+        help="Re-link every Link that needs it, in place, via Plaid Link update mode."
     )
     parser.add_argument(
         "--fetch-transactions",
@@ -57,34 +89,32 @@ def main():
     if args.plaid_link:
         link_token, hosted_link_url = create_link_token()
         print("\n--- Plaid Link Setup ---")
-        print(f"1. Your browser will now open to complete the Plaid Link flow.")
-        print(f"   If it doesn't, please open this URL manually:")
-        print(f"   {hosted_link_url}")
-
-        webbrowser.open(hosted_link_url)
-
-        public_token = None
-        POLLING_INTERVAL_S = 2
-        TIMEOUT_S = 300  # 5 minutes
-        start_time = time.time()
-
-        print(f"\n2. Waiting for you to complete the flow in your browser... (this will time out in {int(TIMEOUT_S / 60)} minutes)")
-
-        while time.time() - start_time < TIMEOUT_S:
-            public_token = get_public_token_from_link_session(link_token)
-            if public_token:
-                print("\n✓ Plaid Link flow completed successfully!")
-                break
-            time.sleep(POLLING_INTERVAL_S)
-        
+        public_token = run_hosted_link(hosted_link_url, lambda: get_public_token_from_link_session(link_token))
         if not public_token:
-            print(f"\n✗ Plaid Link flow timed out after {int(TIMEOUT_S / 60)} minutes. Please try again.")
             return
 
         access_token, item_id = exchange_public_token(public_token.strip())
         print(f"\n✓ Successfully exchanged public token for an access token.")
         print(f"   - Item ID: {item_id}")
         print("   (This access token has been saved securely for future use.)")
+        return
+
+    if args.relink:
+        needing = links_needing_relink()
+        if not needing:
+            print("\nEvery Link is Active; nothing to re-link.")
+            return
+        tokens = load_tokens()
+        for link in needing:
+            # Update mode repairs the Link in place, so its access token and the token file stay as they are
+            link_token, hosted_link_url = create_link_token(access_token=tokens[link.item_id])
+            print(f"\n--- Re-link {link.institution} ---")
+            if not run_hosted_link(hosted_link_url, lambda: link_session_finished(link_token)):
+                return
+            if link_error_code(tokens[link.item_id]) == "ITEM_LOGIN_REQUIRED":
+                print(f"✗ {link.institution} still needs re-linking. Run --relink again.")
+            else:
+                print(f"✓ {link.institution} is re-linked.")
         return
 
     if args.fetch_transactions:
@@ -103,10 +133,13 @@ def main():
         if warning:
             print(f"   ! {warning}")
 
-        responses = []
-        for item_id, access_token in tokens.items():
-            print(f"\nFetching transactions for Item ID: {item_id}")
-            responses.append(get_transactions(access_token, window.start, window.end))
+        fetched = fetch_links(tokens, window.start, window.end)
+        responses = fetched.responses
+        for link in fetched.failed:
+            reason = "needs re-linking (run --relink)" if link.needs_relink else f"failed with {link.error_code}; try again later"
+            print(f"   ✗ {link.institution} {reason}")
+        if not responses:
+            sys.exit("Error: no Link could be fetched, so no Export was written")
 
         # Card Payments and Internal Transfers cross Links, so pair over every Link at once
         movements = pair_linked_movements(responses)
@@ -123,7 +156,10 @@ def main():
 
         if summaries:
             print("\nExporting aggregated data to Google Sheets...")
-            export_statements_to_sheet(summaries, movements)
+            missing = [link.institution for link in fetched.failed]
+            export_statements_to_sheet(summaries, movements, missing=missing)
+            if missing:
+                print(f"\n! Partial Export: missing {', '.join(missing)}")
             print("\nBatch process complete!")
         return
 

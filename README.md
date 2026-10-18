@@ -89,4 +89,13 @@ Instead of manually downloading PDF statements, you can connect directly to your
   ```bash
   python main.py --fetch-transactions --since 2026-01-01 --until 2026-03-31
   ```
-  New Links request 730 days of history. A Link made before that only has about 90 days; re-link it with `--plaid-link` to reach further back.
+  New Links request 730 days of history. A Link made before that only has about 90 days, and `--relink` doesn't change that. To reach further back, link the Institution again with `--plaid-link`, then delete the old Link's entry from `.plaid_tokens.<PLAID_ENV>.json` so the Institution isn't fetched twice.
+- If a Link fails (for example, its login expired), the run still exports the other Links. That Export is a Partial Export: Summary and Analysis start with an `INCOMPLETE: missing <Institution>` row, and the terminal names the Links that need re-linking.
+
+#### 4. Re-link a Link
+
+- When a Link needs re-linking, run:
+  ```bash
+  python main.py --relink
+  ```
+- This finds every Link that needs re-linking and opens Plaid Link in update mode for each one. The Link is repaired in place, so no second Link is added and the token file doesn't change.

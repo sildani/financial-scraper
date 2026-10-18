@@ -128,7 +128,7 @@ The fixtures live in `scripts/sandbox_fixtures.json`, and `scripts/seed_sandbox.
     - [ ] The terminal says Tartan Bank needs re-linking.
 
 - [ ] **Step 6: Re-link**
-  - Re-link Tartan Bank through the tool's re-link flow, using the same `user_custom` credentials as Step 3. Then run `python main.py --fetch-transactions` again.
+  - Re-link Tartan Bank with `python main.py --relink`, using the same `user_custom` credentials as Step 3. Then run `python main.py --fetch-transactions` again.
   - **Validation:**
     - [ ] `.plaid_tokens.sandbox.json` still holds exactly three Links. The re-link replaced the old Link instead of adding a second one.
     - [ ] The Export matches Step 4 again: six Accounts, Total Spend 923.00, not marked incomplete.

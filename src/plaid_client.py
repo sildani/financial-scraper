@@ -1,6 +1,9 @@
 import plaid
 import json
+from typing import List
+from pydantic import BaseModel
 from plaid.api import plaid_api
+from plaid.model.item_get_request import ItemGetRequest
 from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
 from plaid.model.link_token_transactions import LinkTokenTransactions
@@ -29,16 +32,24 @@ def get_plaid_client():
     api_client = plaid.ApiClient(configuration)
     return plaid_api.PlaidApi(api_client)
 
-def create_link_token():
-    client = get_plaid_client()
+def create_link_token(access_token=None, client=None):
+    """
+    Creates a hosted Link token for a new Link, or with access_token, for re-linking that Link
+    in update mode, which repairs it in place instead of adding a second Link.
+    """
+    client = client or get_plaid_client()
+    if access_token:
+        # Update mode rejects products, and the Link keeps the history it was created with
+        mode = dict(access_token=access_token)
+    else:
+        mode = dict(products=PLAID_PRODUCTS, transactions=LinkTokenTransactions(days_requested=PLAID_DAYS_REQUESTED))
     request = LinkTokenCreateRequest(
         user=LinkTokenCreateRequestUser(client_user_id="user-id"), # This should be a unique ID for each user.
         client_name="Financial Scraper",
-        products=PLAID_PRODUCTS,
         country_codes=PLAID_COUNTRY_CODES,
         language="en",
-        transactions=LinkTokenTransactions(days_requested=PLAID_DAYS_REQUESTED),
-        hosted_link={}
+        hosted_link={},
+        **mode,
     )
     response = client.link_token_create(request)
     return response["link_token"], response["hosted_link_url"]
@@ -77,6 +88,79 @@ def get_transactions(access_token, start_date, end_date, client=None):
         transactions.extend(response["transactions"])
     response["transactions"] = transactions
     return response
+
+class FailedLink(BaseModel):
+    item_id: str
+    institution: str
+    error_code: str
+
+    @property
+    def needs_relink(self) -> bool:
+        return self.error_code == "ITEM_LOGIN_REQUIRED"
+
+
+class FetchedLinks(BaseModel):
+    responses: List[dict]
+    failed: List[FailedLink]  # Any failed Link makes the Export a Partial Export
+
+
+def fetch_links(tokens: dict, start_date, end_date, client=None) -> FetchedLinks:
+    """Fetches every Link's Transactions; a Link that fails is reported instead of failing the run."""
+    client = client or get_plaid_client()
+    responses, failed = [], []
+    for item_id, access_token in tokens.items():
+        try:
+            responses.append(get_transactions(access_token, start_date, end_date, client=client))
+        except plaid.ApiException as e:
+            failed.append(FailedLink(item_id=item_id, institution=institution_name(client, item_id, access_token), error_code=error_code(e)))
+    return FetchedLinks(responses=responses, failed=failed)
+
+
+def institution_name(client, item_id: str, access_token: str) -> str:
+    # /item/get still answers for a Link that needs re-linking, but not for every failure
+    try:
+        item = client.item_get(ItemGetRequest(access_token=access_token))["item"]
+    except plaid.ApiException:
+        return item_id
+    return item.get("institution_name") or item.get("institution_id") or item_id
+
+
+def error_code(e: plaid.ApiException) -> str:
+    # Plaid errors carry a JSON body; a transport failure may not
+    try:
+        return json.loads(e.body)["error_code"]
+    except (TypeError, ValueError, KeyError):
+        return "UNKNOWN"
+
+
+def links_needing_relink(client=None) -> List[FailedLink]:
+    """Every Link whose /item/get reports ITEM_LOGIN_REQUIRED."""
+    client = client or get_plaid_client()
+    needing = []
+    for item_id, access_token in load_tokens().items():
+        item = client.item_get(ItemGetRequest(access_token=access_token))["item"]
+        error = item.get("error")
+        if error and error["error_code"] == "ITEM_LOGIN_REQUIRED":
+            institution = item.get("institution_name") or item.get("institution_id") or item_id
+            needing.append(FailedLink(item_id=item_id, institution=institution, error_code=error["error_code"]))
+    return needing
+
+
+def link_error_code(access_token: str) -> str | None:
+    item = get_plaid_client().item_get(ItemGetRequest(access_token=access_token))["item"]
+    error = item.get("error")
+    return error["error_code"] if error else None
+
+
+def link_session_finished(link_token: str) -> bool:
+    """Whether the hosted Link session for link_token has ended, successfully or not. Update mode
+    returns no public token, so this, not get_public_token_from_link_session, tells when a re-link is done."""
+    try:
+        response = get_plaid_client().link_token_get(LinkTokenGetRequest(link_token=link_token))
+    except plaid.ApiException:
+        return False  # Same as get_public_token_from_link_session: keep polling
+    return any(session.get("finished_at") for session in response.get("link_sessions") or [])
+
 
 def get_public_token_from_link_session(link_token: str) -> str | None:
     """

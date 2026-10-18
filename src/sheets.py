@@ -16,20 +16,21 @@ def get_gspread_client() -> gspread.Client:
     return gspread.service_account(filename=SERVICE_ACCOUNT_FILE)
 
 
-def export_statements_to_sheet(summaries: list[AccountSummary], movements: LinkedMovements | None = None):
+def export_statements_to_sheet(summaries: list[AccountSummary], movements: LinkedMovements | None = None, missing: list[str] = (), spreadsheet=None):
     """Exports structured data to three timestamped tabs:
     - Summary_YYYYMMDDHHMMSS
     - Details_YYYYMMDDHHMMSS
     - Analysis_YYYYMMDDHHMMSS
     plus LinkedMovements_YYYYMMDDHHMMSS when movements are given (Plaid mode only).
+    A Partial Export names its missing Institutions in a banner atop Summary and Analysis.
     """
     MAX_RETRIES = 3
     RETRY_DELAY_S = 5
+    banner = [f"INCOMPLETE: missing {', '.join(missing)}"] if missing else None
 
     for attempt in range(MAX_RETRIES):
         try:
-            gc = get_gspread_client()
-            sh = gc.open_by_key(current_plaid_environment().spreadsheet_id)
+            sh = spreadsheet or get_gspread_client().open_by_key(current_plaid_environment().spreadsheet_id)
 
             timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
             
@@ -39,6 +40,8 @@ def export_statements_to_sheet(summaries: list[AccountSummary], movements: Linke
 
             # 1. Summary Sheet
             summary_ws = sh.add_worksheet(title=summary_tab, rows=100, cols=10)
+            if banner:
+                summary_ws.append_row(banner)
             summary_ws.append_row([
                 "Institution", "Account Name", "Period",
                 "Balance", "Amount Due", "Due Date", "Interest Charged", "Transaction Count"
@@ -67,7 +70,8 @@ def export_statements_to_sheet(summaries: list[AccountSummary], movements: Linke
             analysis_ws = sh.add_worksheet(title=analysis_tab, rows=500, cols=10)
             analysis = analyze(summaries)
 
-            analysis_rows = [["--- SPEND BY CATEGORY ---", ""], ["Category", "Spend"]]
+            analysis_rows = [banner] if banner else []
+            analysis_rows += [["--- SPEND BY CATEGORY ---", ""], ["Category", "Spend"]]
             analysis_rows.extend([cat, total] for cat, total in analysis.spend_by_category.items())
             analysis_rows.append(["Total Spend", analysis.total_spend])
 

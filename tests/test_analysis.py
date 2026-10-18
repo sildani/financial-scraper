@@ -85,32 +85,7 @@ class PlaidSpendTest(unittest.TestCase):
 
     def test_sandbox_fixture_links(self):
         # What Plaid returned for docs/plaid-testing.md Phase 1, checked against Step 4's Analysis
-        platypus = link_response([CHECKING, SAVINGS, AUTO_LOAN], [
-            side("ACME CORP PAYROLL", "acc-checking", -2500.00, "INCOME_SALARY", day=1),
-            side("Trader Joe's", "acc-checking", 85.00, "FOOD_AND_DRINK_GROCERIES", day=1),
-            side("PAYMENT TO FIRST GINGHAM CARD", "acc-checking", 500.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=2),
-            side("DISCOVER E-PAYMENT", "acc-checking", 150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=3),
-            side("ONLINE TRANSFER FROM CHECKING XX1001", "acc-savings", -300.00, "TRANSFER_IN_ACCOUNT_TRANSFER", day=5),
-            side("ONLINE TRANSFER TO SAVINGS XX2002", "acc-checking", 300.00, "TRANSFER_OUT_SAVINGS", day=5),
-            side("ZELLE PAYMENT TO JOHN DOE", "acc-checking", 80.00, "TRANSFER_OUT_TRANSFER_OUT_FROM_APPS", day=7),
-            side("PAYMENT RECEIVED THANK YOU", "acc-auto", -200.00, "TRANSFER_IN_OTHER_TRANSFER_IN", day=9),
-            side("TOYOTA FINANCIAL PAYMENT", "acc-checking", 200.00, "LOAN_PAYMENTS_CAR_PAYMENT", day=9),
-        ])
-        gingham = link_response([CARD], [
-            side("Whole Foods", "acc-card", 60.00, "FOOD_AND_DRINK_GROCERIES", day=1),
-            side("Olive Garden", "acc-card", 40.00, "FOOD_AND_DRINK_RESTAURANT", day=2),
-            side("PAYMENT THANK YOU", "acc-card", -500.00, "TRANSFER_IN_OTHER_TRANSFER_IN", day=2),
-            side("Delta Air Lines", "acc-card", 400.00, "TRAVEL_FLIGHTS", day=3),
-            side("Whole Foods", "acc-card", -25.00, "FOOD_AND_DRINK_GROCERIES", day=4),
-            side("Starbucks", "acc-card", 5.00, "FOOD_AND_DRINK_COFFEE", day=6),
-            side("ZQX HOLDINGS 4471", "acc-card", 12.00, "ENTERTAINMENT_VIDEO_GAMES", day=8),
-        ], institution_name="First Gingham Credit Union")
-        tartan = link_response([account(account_id="acc-tartan", type="depository", subtype="checking")], [
-            side("Chipotle", "acc-tartan", 14.00, "FOOD_AND_DRINK_FAST_FOOD", day=6),
-            side("Safeway", "acc-tartan", 52.00, "FOOD_AND_DRINK_GROCERIES", day=11),
-        ], institution_name="Tartan Bank")
-
-        analysis = plaid_analysis(platypus, gingham, tartan)
+        analysis = plaid_analysis(sandbox_platypus(), sandbox_gingham(), sandbox_tartan())
 
         self.assertEqual(analysis.spend_by_category, {
             "Travel": 400.00,
@@ -122,6 +97,52 @@ class PlaidSpendTest(unittest.TestCase):
         self.assertEqual(analysis.total_spend, 923.00)
         self.assertEqual(analysis.income, 2500.00)
         self.assertEqual(analysis.spend_by_merchant["Whole Foods"], 35.00)
+
+    def test_sandbox_fixture_links_without_tartan(self):
+        # docs/plaid-testing.md Phase 1 Step 5: Tartan needs re-linking, so the Partial Export drops it
+        analysis = plaid_analysis(sandbox_platypus(), sandbox_gingham())
+
+        self.assertEqual(analysis.spend_by_category, {
+            "Travel": 400.00,
+            "Mortgage & Loans": 200.00,
+            "Groceries": 120.00,
+            "Other": 92.00,
+            "Restaurants & Fast Food": 45.00,
+        })
+        self.assertEqual(analysis.total_spend, 857.00)
+
+
+def sandbox_platypus():
+    return link_response([CHECKING, SAVINGS, AUTO_LOAN], [
+        side("ACME CORP PAYROLL", "acc-checking", -2500.00, "INCOME_SALARY", day=1),
+        side("Trader Joe's", "acc-checking", 85.00, "FOOD_AND_DRINK_GROCERIES", day=1),
+        side("PAYMENT TO FIRST GINGHAM CARD", "acc-checking", 500.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=2),
+        side("DISCOVER E-PAYMENT", "acc-checking", 150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=3),
+        side("ONLINE TRANSFER FROM CHECKING XX1001", "acc-savings", -300.00, "TRANSFER_IN_ACCOUNT_TRANSFER", day=5),
+        side("ONLINE TRANSFER TO SAVINGS XX2002", "acc-checking", 300.00, "TRANSFER_OUT_SAVINGS", day=5),
+        side("ZELLE PAYMENT TO JOHN DOE", "acc-checking", 80.00, "TRANSFER_OUT_TRANSFER_OUT_FROM_APPS", day=7),
+        side("PAYMENT RECEIVED THANK YOU", "acc-auto", -200.00, "TRANSFER_IN_OTHER_TRANSFER_IN", day=9),
+        side("TOYOTA FINANCIAL PAYMENT", "acc-checking", 200.00, "LOAN_PAYMENTS_CAR_PAYMENT", day=9),
+    ])
+
+
+def sandbox_gingham():
+    return link_response([CARD], [
+        side("Whole Foods", "acc-card", 60.00, "FOOD_AND_DRINK_GROCERIES", day=1),
+        side("Olive Garden", "acc-card", 40.00, "FOOD_AND_DRINK_RESTAURANT", day=2),
+        side("PAYMENT THANK YOU", "acc-card", -500.00, "TRANSFER_IN_OTHER_TRANSFER_IN", day=2),
+        side("Delta Air Lines", "acc-card", 400.00, "TRAVEL_FLIGHTS", day=3),
+        side("Whole Foods", "acc-card", -25.00, "FOOD_AND_DRINK_GROCERIES", day=4),
+        side("Starbucks", "acc-card", 5.00, "FOOD_AND_DRINK_COFFEE", day=6),
+        side("ZQX HOLDINGS 4471", "acc-card", 12.00, "ENTERTAINMENT_VIDEO_GAMES", day=8),
+        ], institution_name="First Gingham Credit Union")
+
+
+def sandbox_tartan():
+    return link_response([account(account_id="acc-tartan", type="depository", subtype="checking")], [
+        side("Chipotle", "acc-tartan", 14.00, "FOOD_AND_DRINK_FAST_FOOD", day=6),
+        side("Safeway", "acc-tartan", 52.00, "FOOD_AND_DRINK_GROCERIES", day=11),
+    ], institution_name="Tartan Bank")
 
 
 def statement(*items):
