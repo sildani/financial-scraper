@@ -83,6 +83,36 @@ def run_plaid_export(tokens: dict, window: ExportWindow, spreadsheet=None) -> Pl
         print("\nBatch process complete!")
     return PlaidExport(fetched=fetched, movements=movements, summaries=summaries, tabs=tabs)
 
+class StatementExport(BaseModel):
+    summaries: List[AccountSummary] = []
+    failed: List[str] = []  # PDF file names of the Statements that couldn't be processed
+    tabs: List[str] = []  # Empty when no Export was written
+
+def run_statement_export(pdf_paths: List[str], force: bool = False, parse=process_statement_pdf, spreadsheet=None) -> StatementExport:
+    """A Statement mode Export of the Statement PDFs at pdf_paths, written to the Environment's Sheet."""
+    summaries, failed = [], []
+    for index, pdf_path in enumerate(pdf_paths, start=1):
+        filename = os.path.basename(pdf_path)
+        print(f"[{index}/{len(pdf_paths)}] Processing: {filename}")
+
+        try:
+            summary = parse(pdf_path, force_reprocess=force)
+            summaries.append(summary)
+            print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
+        except Exception as e:
+            failed.append(filename)
+            print(f"   ✗ Failed to process {filename}: {e}")
+    if not summaries:
+        return StatementExport(failed=failed)
+
+    print("\nExporting aggregated data to Google Sheets...")
+    tabs = export_statements_to_sheet(summaries, missing=failed, spreadsheet=spreadsheet)
+    print("\nBatch process complete!")
+    if failed:
+        print(f"\n! Partial Export: missing {', '.join(failed)}")
+        print("   Run --statements again without -f to retry only the failed Statements; the rest are cached.")
+    return StatementExport(summaries=summaries, failed=failed, tabs=tabs)
+
 def parse_args(argv=None) -> argparse.Namespace:
     """
     Parses the command line into args whose mode says what the run does: "plaid" (the default,
@@ -213,22 +243,8 @@ def main():
 
     print(f"Found {len(pdf_files)} PDF statement(s) in '{INPUT_DIR}/'\n")
 
-    summaries = []
-    for index, pdf_path in enumerate(pdf_files, start=1):
-        filename = os.path.basename(pdf_path)
-        print(f"[{index}/{len(pdf_files)}] Processing: {filename}")
-        
-        try:
-            summary = process_statement_pdf(pdf_path, force_reprocess=args.force)
-            summaries.append(summary)
-            print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
-        except Exception as e:
-            print(f"   ✗ Failed to process {filename}: {e}")
-
-    if summaries:
-        print("\nExporting aggregated data to Google Sheets...")
-        export_statements_to_sheet(summaries)
-        print("\nBatch process complete!")
+    if not run_statement_export(pdf_files, args.force).summaries:
+        sys.exit("Error: no Statement could be processed, so no Export was written")
 
 if __name__ == "__main__":
     main()

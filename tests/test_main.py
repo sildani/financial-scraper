@@ -2,7 +2,9 @@ import contextlib
 import io
 import unittest
 
-from main import parse_args
+from main import parse_args, run_statement_export
+from tests.test_analysis import statement
+from tests.test_sheets import FakeSpreadsheet
 
 
 def parse_error(argv) -> str:
@@ -38,6 +40,45 @@ class FlagCombinationTest(unittest.TestCase):
         for other_mode in (["--statements"], ["--plaid-link"], ["--relink"]):
             with self.subTest(other_mode):
                 self.assertIn("--since and --until only apply to a Plaid mode Export", parse_error([*other_mode, "--since", "2026-01-01"]))
+
+
+def fake_parse(failing=()):
+    """process_statement_pdf, raising for each PDF named in failing as Gemini or the cache might."""
+    def parse(pdf_path, force_reprocess=False):
+        if pdf_path.split("/")[-1] in failing:
+            raise RuntimeError("status_code: 503, UNAVAILABLE")
+        return statement("liability", ("Whole Foods", 60.00, "Groceries"))
+    return parse
+
+
+class StatementPartialExportTest(unittest.TestCase):
+    def test_a_failed_statement_marks_the_export_incomplete_naming_its_file(self):
+        spreadsheet = FakeSpreadsheet()
+        with contextlib.redirect_stdout(io.StringIO()):
+            export = run_statement_export(
+                ["input/card-a.pdf", "input/card-b.pdf"], parse=fake_parse(failing=["card-b.pdf"]), spreadsheet=spreadsheet
+            )
+        banner = ["INCOMPLETE: missing card-b.pdf"]
+        self.assertEqual(spreadsheet.tabs["Summary"].rows[0], banner)
+        self.assertEqual(spreadsheet.tabs["Analysis"].rows[0], banner)
+        self.assertEqual((len(export.summaries), export.failed), (1, ["card-b.pdf"]))
+
+    def test_the_run_ends_by_naming_failed_files_and_how_to_retry_only_them(self):
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            run_statement_export(["input/card-a.pdf", "input/card-b.pdf"], parse=fake_parse(failing=["card-b.pdf"]), spreadsheet=FakeSpreadsheet())
+        last_lines = stdout.getvalue().strip().splitlines()[-2:]
+        self.assertEqual(last_lines, [
+            "! Partial Export: missing card-b.pdf",
+            "   Run --statements again without -f to retry only the failed Statements; the rest are cached.",
+        ])
+
+    def test_no_export_is_written_when_every_statement_fails(self):
+        spreadsheet = FakeSpreadsheet()
+        with contextlib.redirect_stdout(io.StringIO()):
+            export = run_statement_export(["input/card-a.pdf"], parse=fake_parse(failing=["card-a.pdf"]), spreadsheet=spreadsheet)
+        self.assertEqual(spreadsheet.tabs, {})
+        self.assertEqual((export.summaries, export.failed, export.tabs), ([], ["card-a.pdf"], []))
 
 
 if __name__ == "__main__":
