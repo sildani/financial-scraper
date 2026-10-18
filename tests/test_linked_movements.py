@@ -36,6 +36,17 @@ class PairingTest(unittest.TestCase):
         self.assertEqual(pairs(movements), [("PAYMENT TO FIRST GINGHAM CARD", "PAYMENT THANK YOU")])
         self.assertEqual(flagged(movements), [])
 
+    def test_card_payment_whose_card_side_is_a_loan_disbursement_is_paired(self):
+        # Some Institutions file the card side of a Card Payment under LOAN_DISBURSEMENTS_ (#33)
+        movements = pair_linked_movements([
+            link_response([CHECKING, CARD], [
+                side("PAYMENT TO CARD ENDING IN 9496", "acc-checking", 355.83, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"),
+                side("PAYMENT THANK YOU - WEB", "acc-card", -355.83, "LOAN_DISBURSEMENTS_OTHER_DISBURSEMENT"),
+            ], institution_name="First Gingham Credit Union"),
+        ])
+        self.assertEqual(pairs(movements), [("PAYMENT TO CARD ENDING IN 9496", "PAYMENT THANK YOU - WEB")])
+        self.assertEqual(flagged(movements), [])
+
     def test_sides_more_than_three_days_apart_are_not_paired(self):
         movements = pair_linked_movements([
             link_response([CHECKING, SAVINGS], [
@@ -45,6 +56,20 @@ class PairingTest(unittest.TestCase):
         ])
         self.assertEqual(pairs(movements), [])
         self.assertEqual(flagged(movements), ["ONLINE TRANSFER TO SAVINGS", "ONLINE TRANSFER FROM CHECKING"])
+
+    def test_the_closest_paying_side_wins_even_when_an_earlier_one_also_fits(self):
+        # An earlier payment to an unlinked credit line must not take the card's receipt (#34)
+        movements = pair_linked_movements([
+            link_response([CHECKING], [
+                side("CREDIT LINE REPAYMENT", "acc-checking", 150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=1),
+                side("CARD ACH PAYMENT", "acc-checking", 150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=5),
+            ]),
+            link_response([CARD], [
+                side("ONLINE PAYMENT - THANK YOU", "acc-card", -150.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT", day=4),
+            ], institution_name="First Gingham Credit Union"),
+        ])
+        self.assertEqual(pairs(movements), [("CARD ACH PAYMENT", "ONLINE PAYMENT - THANK YOU")])
+        self.assertEqual(flagged(movements), ["CREDIT LINE REPAYMENT"])
 
     def test_a_refund_is_never_a_side(self):
         movements = pair_linked_movements([

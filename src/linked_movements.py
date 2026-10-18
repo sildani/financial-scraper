@@ -8,7 +8,8 @@ from src.schemas import PlaidAccount, PlaidTransaction
 # exactly opposite amounts, a few days apart, whose Plaid categories both say money moved.
 # Plaid's category is only a hint, so it never identifies a side alone. Taxonomy:
 # https://plaid.com/documents/pfc-taxonomy-all.csv
-MOVEMENT_CATEGORY_PREFIXES = ("LOAN_PAYMENTS_", "TRANSFER_IN_", "TRANSFER_OUT_")
+# Some Institutions file the card side of a Card Payment under LOAN_DISBURSEMENTS_ (#33).
+MOVEMENT_CATEGORY_PREFIXES = ("LOAN_PAYMENTS_", "LOAN_DISBURSEMENTS_", "TRANSFER_IN_", "TRANSFER_OUT_")
 MAX_DAYS_APART = 3
 LIABILITY_TYPES = ("credit", "loan")
 
@@ -67,24 +68,30 @@ def pair_linked_movements(responses: List[dict]) -> LinkedMovements:
     paying = sorted((c for c in candidates if c.side.direction == "paid"), key=lambda c: c.tx.date)
     receiving = [c for c in candidates if c.side.direction == "received"]
 
+    # Closest pairs first across every candidate, so an earlier paying side that also fits
+    # can't take a closer paying side's counterpart (#34). sorted() is stable, so ties keep date order.
+    matches = sorted(
+        (
+            (paid, received) for paid in paying for received in receiving
+            if received.tx.account_id != paid.tx.account_id
+            and received.tx.amount == -paid.tx.amount
+            and days_apart(received, paid) <= MAX_DAYS_APART
+        ),
+        key=lambda match: days_apart(*match),
+    )
     paired = []
-    unpaired = []
-    for paid in paying:
-        matches = [
-            c for c in receiving
-            if c.tx.account_id != paid.tx.account_id
-            and c.tx.amount == -paid.tx.amount
-            and days_apart(c, paid) <= MAX_DAYS_APART
-        ]
-        if matches:
-            closest = min(matches, key=lambda c: days_apart(c, paid))
-            receiving.remove(closest)
-            paired.append((paid.side, closest.side))
-        elif is_own_account_movement(paid):
-            unpaired.append(paid.side)
+    used = set()
+    for paid, received in matches:
+        if paid.side.transaction_id in used or received.side.transaction_id in used:
+            continue
+        used.update((paid.side.transaction_id, received.side.transaction_id))
+        paired.append((paid, received))
 
-    unpaired.extend(c.side for c in receiving if is_own_account_movement(c))
-    return LinkedMovements(paired=paired, unpaired=sorted(unpaired, key=lambda s: s.date))
+    unpaired = [c.side for c in paying + receiving if c.side.transaction_id not in used and is_own_account_movement(c)]
+    return LinkedMovements(
+        paired=[(paid.side, received.side) for paid, received in sorted(paired, key=lambda match: match[0].tx.date)],
+        unpaired=sorted(unpaired, key=lambda s: s.date),
+    )
 
 
 class Candidate(BaseModel):
