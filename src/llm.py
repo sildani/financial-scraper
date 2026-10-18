@@ -2,7 +2,10 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
 import json
+import random
+import time
 from pydantic_ai import Agent, BinaryContent
+from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.google import GoogleModel
 
 from src.schemas import AccountSummary
@@ -26,6 +29,22 @@ statement_agent = Agent(
     )
 )
 
+GEMINI_ATTEMPTS = 4
+GEMINI_RETRY_BASE_DELAY_S = 5
+GEMINI_UNAVAILABLE_STATUS_CODES = (429, 503)  # Too many requests, or the model is overloaded
+
+def call_gemini_with_retries(call, sleep=time.sleep):
+    """call(), retried with growing, jittered delays while Gemini is unavailable."""
+    for attempt in range(1, GEMINI_ATTEMPTS + 1):
+        try:
+            return call()
+        except ModelHTTPError as e:
+            if e.status_code not in GEMINI_UNAVAILABLE_STATUS_CODES or attempt == GEMINI_ATTEMPTS:
+                raise
+            delay = GEMINI_RETRY_BASE_DELAY_S * 2 ** (attempt - 1) * random.uniform(1, 1.5)
+            print(f"   ↳ [RETRY] Gemini unavailable ({e.status_code}); retrying in {delay:.0f}s (attempt {attempt + 1}/{GEMINI_ATTEMPTS})")
+            sleep(delay)
+
 def process_statement_pdf(pdf_path: str, force_reprocess: bool = False) -> AccountSummary:
     """Processes PDF using Gemini, caching its parse by MD5 file hash."""
     file_hash = compute_md5(pdf_path)
@@ -48,10 +67,10 @@ def process_statement_pdf(pdf_path: str, force_reprocess: bool = False) -> Accou
         media_type='application/pdf'
     )
 
-    result = statement_agent.run_sync([
+    result = call_gemini_with_retries(lambda: statement_agent.run_sync([
         'Please parse this credit card or bank statement PDF and extract the structured data.',
         pdf_input
-    ])
+    ]))
     
     summary = result.output
 
