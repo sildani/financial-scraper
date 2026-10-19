@@ -15,7 +15,7 @@ from plaid.model.transactions_get_request import TransactionsGetRequest
 from plaid.model.transactions_get_request_options import TransactionsGetRequestOptions
 
 from src.config import PLAID_CLIENT_ID, PLAID_SECRET, current_plaid_environment
-from src.schemas import link_institution
+from src.schemas import link_institution, link_label
 
 PLAID_PRODUCTS = [Products("transactions")]
 PLAID_COUNTRY_CODES = [CountryCode("US")]
@@ -55,8 +55,8 @@ def create_link_token(access_token=None, client=None):
     response = client.link_token_create(request)
     return response["link_token"], response["hosted_link_url"]
 
-def exchange_public_token(public_token):
-    client = get_plaid_client()
+def exchange_public_token(public_token, client=None):
+    client = client or get_plaid_client()
     request = ItemPublicTokenExchangeRequest(public_token=public_token)
     response = client.item_public_token_exchange(request)
     access_token = response["access_token"]
@@ -103,6 +103,11 @@ class FailedLink(BaseModel):
     @property
     def needs_relink(self) -> bool:
         return error_needs_relink(self.error_code)
+
+    @property
+    def label(self) -> str:
+        """How output names this Link (GLOSSARY.md: Link ID)."""
+        return link_label(self.item_id, self.institution)
 
 
 class FetchedLinks(BaseModel):

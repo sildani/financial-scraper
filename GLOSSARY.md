@@ -65,7 +65,7 @@ An Account's current balance at the time of an Export, for any Account kind.
 What a Liability owes at the end of a Statement, with its due date. Only exists in Statement mode.
 
 **Partial Export**:
-An Export where one or more Institutions could not be fetched (Plaid mode) or one or more Statements could not be processed (Statement mode). It is allowed, but always marked incomplete and names what is missing: each Institution, or each Statement's PDF file, since a Statement's Institution isn't known until it is processed.
+An Export where one or more Links could not be fetched (Plaid mode) or one or more Statements could not be processed (Statement mode). It is allowed, but always marked incomplete and names what is missing: each Link by its Institution and Link ID, or each Statement's PDF file, since a Statement's Institution isn't known until it is processed.
 
 **Link**:
 One authorized connection to one Institution, which may cover several Accounts. A Link is Active or Needs re-link; re-linking replaces the old Link rather than adding a second one. A Link that needs re-linking causes a Partial Export.

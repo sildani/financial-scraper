@@ -54,7 +54,6 @@ FULL_SPEND_BY_CATEGORY = {
 }
 # Step 5: Tartan Bank needs re-link, so its Chipotle and Safeway drop out
 PARTIAL_SPEND_BY_CATEGORY = {**FULL_SPEND_BY_CATEGORY, "Groceries": 120, "Restaurants & Fast Food": 45}
-INCOMPLETE_BANNER = ["INCOMPLETE: missing Tartan Bank"]
 
 
 def file_digest(path) -> str | None:
@@ -141,11 +140,12 @@ class PlaidSandboxExportTest(unittest.TestCase):
         spreadsheet = get_gspread_client().open_by_key(cls.environment.spreadsheet_id)
         cls.addClassCleanup(cls.delete_tabs_unless_failed, spreadsheet)
         try:
-            cls.tokens, token_by_link = {}, {}
+            cls.tokens, token_by_link, cls.item_by_link = {}, {}, {}
             for name, link in load_links().items():
                 item_id, access_token = create_fixture_link(client, link)
                 cls.addClassCleanup(remove_link, client, access_token)
                 cls.tokens[item_id] = token_by_link[name] = access_token
+                cls.item_by_link[name] = item_id
             window = export_window(None, None, date.today())
             for access_token in cls.tokens.values():
                 wait_until_ready(client, access_token, window)
@@ -211,8 +211,10 @@ class PlaidSandboxExportTest(unittest.TestCase):
     # --- Step 5: Partial Export ---
 
     def test_partial_export_is_marked_incomplete_naming_tartan(self):
-        self.assertEqual(self.partial_sheet.banner("Summary"), INCOMPLETE_BANNER)
-        self.assertEqual(self.partial_sheet.banner("Analysis"), INCOMPLETE_BANNER)
+        # Sandbox makes a new Item ID each run, so the Link ID is its first 6 characters
+        banner = [f"INCOMPLETE: missing {TARTAN} [{self.item_by_link['tartan'][:6]}]"]
+        self.assertEqual(self.partial_sheet.banner("Summary"), banner)
+        self.assertEqual(self.partial_sheet.banner("Analysis"), banner)
 
     def test_partial_export_reports_tartan_needs_relink(self):
         self.assertEqual([(link.institution, link.needs_relink) for link in self.partial.fetched.failed], [(TARTAN, True)])
