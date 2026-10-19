@@ -55,8 +55,8 @@ def create_link_token(access_token=None, client=None):
     response = client.link_token_create(request)
     return response["link_token"], response["hosted_link_url"]
 
-def exchange_public_token(public_token):
-    client = get_plaid_client()
+def exchange_public_token(public_token, client=None):
+    client = client or get_plaid_client()
     request = ItemPublicTokenExchangeRequest(public_token=public_token)
     response = client.item_public_token_exchange(request)
     access_token = response["access_token"]

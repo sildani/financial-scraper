@@ -258,9 +258,11 @@ def main():
             print("Please try again.")
             return
 
-        access_token, item_id = exchange_public_token(public_token.strip())
+        client = get_plaid_client()
+        access_token, item_id = exchange_public_token(public_token.strip(), client=client)
         print(f"\n✓ Successfully exchanged public token for an access token.")
-        print(f"   - Link: {link_label(item_id, institution_name(get_plaid_client(), item_id, access_token))}")
+        institution = institution_name(client, item_id, access_token)
+        print(f"   - Link: {link_label(item_id, institution)}")
         print(f"   - Item ID: {item_id}")
         print("   (This access token has been saved securely for future use.)")
         return
