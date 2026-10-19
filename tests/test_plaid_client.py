@@ -6,7 +6,7 @@ from pathlib import Path
 
 import plaid
 
-from src.plaid_client import create_link_token, fetch_links, get_public_token_from_link_session, get_transactions, links_needing_relink, load_tokens, remove_token, save_token
+from src.plaid_client import FailedLink, create_link_token, fetch_links, get_public_token_from_link_session, get_transactions, links_needing_relink, load_tokens, remove_token, save_token
 
 
 def plaid_error(error_code):
@@ -158,6 +158,16 @@ class FetchLinksTest(unittest.TestCase):
         client = FakePlaidClient([], failing={"token-gone": "INSTITUTION_DOWN"})
         fetched = fetch_links({"item-gone": "token-gone"}, date(2026, 9, 17), date(2026, 10, 17), client=client)
         self.assertEqual([(f.institution, f.needs_relink) for f in fetched.failed], [("item-gone", False)])
+
+
+class FailedLinkLabelTest(unittest.TestCase):
+    def test_a_link_is_named_by_its_institution_then_its_link_id(self):
+        link = FailedLink(item_id="eVBnVMp7zdTJLkRN", institution="First Gingham Credit Union", error_code="ITEM_LOGIN_REQUIRED")
+        self.assertEqual(link.label, "First Gingham Credit Union [eVBnVM]")
+
+    def test_a_link_whose_institution_is_unknown_is_named_by_its_link_id_alone(self):
+        link = FailedLink(item_id="eVBnVMp7zdTJLkRN", institution="eVBnVMp7zdTJLkRN", error_code="INVALID_ACCESS_TOKEN")
+        self.assertEqual(link.label, "eVBnVM")
 
 
 class LinksNeedingRelinkTest(unittest.TestCase):

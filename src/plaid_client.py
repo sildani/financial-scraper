@@ -15,7 +15,7 @@ from plaid.model.transactions_get_request import TransactionsGetRequest
 from plaid.model.transactions_get_request_options import TransactionsGetRequestOptions
 
 from src.config import PLAID_CLIENT_ID, PLAID_SECRET, current_plaid_environment
-from src.schemas import link_institution
+from src.schemas import link_institution, link_label
 
 PLAID_PRODUCTS = [Products("transactions")]
 PLAID_COUNTRY_CODES = [CountryCode("US")]
@@ -103,6 +103,11 @@ class FailedLink(BaseModel):
     @property
     def needs_relink(self) -> bool:
         return error_needs_relink(self.error_code)
+
+    @property
+    def label(self) -> str:
+        """How output names this Link (GLOSSARY.md: Link ID)."""
+        return link_label(self.item_id, self.institution)
 
 
 class FetchedLinks(BaseModel):

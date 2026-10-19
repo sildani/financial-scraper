@@ -16,12 +16,12 @@ from src.sheets import export_to_sheet
 from src.plaid_client import (
     create_link_token, exchange_public_token, fetch_links, load_tokens, get_public_token_from_link_session,
     links_needing_relink, link_session_finished, link_error_code, error_needs_relink, FailedLink, FetchedLinks, RelinkCheck,
-    error_code as plaid_error_code,
+    get_plaid_client, institution_name, error_code as plaid_error_code,
 )
 from src.plaid_transformer import summarize_link
 from src.linked_movements import pair_linked_movements, LinkedMovements
 from src.export_window import export_window, history_warning, ExportWindow
-from src.schemas import AccountSummary
+from src.schemas import AccountSummary, link_label
 
 def run_hosted_link(hosted_link_url, poll):
     """Opens hosted Link in the browser and polls until poll() returns something truthy; None on timeout."""
@@ -53,13 +53,13 @@ class PlaidExport(BaseModel):
     summaries: List[AccountSummary] = []
     tabs: List[str] = []  # Empty when no Export was written
 
-def run_plaid_export(tokens: dict, window: ExportWindow, spreadsheet=None) -> PlaidExport:
+def run_plaid_export(tokens: dict, window: ExportWindow, spreadsheet=None, client=None) -> PlaidExport:
     """A Plaid mode Export of every Link in tokens over window, written to the Environment's Sheet."""
-    fetched = fetch_links(tokens, window.start, window.end)
+    fetched = fetch_links(tokens, window.start, window.end, client=client)
     responses = fetched.responses
     for link in fetched.failed:
         reason = "needs re-linking (run --relink)" if link.needs_relink else f"failed with {link.error_code}; try again later"
-        print(f"   ✗ {link.institution} {reason}")
+        print(f"   ✗ {link.label} {reason}")
     if not responses:
         return PlaidExport(fetched=fetched)
 
@@ -79,7 +79,7 @@ def run_plaid_export(tokens: dict, window: ExportWindow, spreadsheet=None) -> Pl
     tabs = []
     if summaries:
         print("\nExporting aggregated data to Google Sheets...")
-        missing = [link.institution for link in fetched.failed]
+        missing = [link.label for link in fetched.failed]
         tabs = export_to_sheet(summaries, movements, missing=missing, spreadsheet=spreadsheet)
         if missing:
             print(f"\n! Partial Export: missing {', '.join(missing)}")
@@ -106,7 +106,7 @@ def run_relink(check: RelinkCheck, tokens: dict, relink_session=hosted_relink_se
     run = RelinkRun(unchecked=check.unchecked)
     print_unchecked(run.unchecked)
     for link in check.needing:
-        print(f"\n--- Re-link {link.institution} ---")
+        print(f"\n--- Re-link {link.label} ---")
         access_token = tokens[link.item_id]
         try:
             # A timed-out session still needs re-linking, but the other Links are still offered
@@ -139,15 +139,15 @@ def other_error(link: FailedLink) -> str | None:
 
 def relinked_line(link: FailedLink) -> str:
     code = other_error(link)
-    return f"   ✓ {link.institution} is re-linked" + (f" (Plaid reports {code})" if code else "")
+    return f"   ✓ {link.label} is re-linked" + (f" (Plaid reports {code})" if code else "")
 
 def needs_relink_line(link: FailedLink) -> str:
     code = other_error(link)
-    return f"   ✗ {link.institution} still needs re-linking" + (f" ({code})" if code else "")
+    return f"   ✗ {link.label} still needs re-linking" + (f" ({code})" if code else "")
 
 def print_unchecked(links: List[FailedLink]):
     for link in links:
-        print(f"   ✗ {link.institution} couldn't be checked ({link.error_code})")
+        print(f"   ✗ {link.label} couldn't be checked ({link.error_code})")
 
 class StatementExport(BaseModel):
     summaries: List[AccountSummary] = []
@@ -260,6 +260,7 @@ def main():
 
         access_token, item_id = exchange_public_token(public_token.strip())
         print(f"\n✓ Successfully exchanged public token for an access token.")
+        print(f"   - Link: {link_label(item_id, institution_name(get_plaid_client(), item_id, access_token))}")
         print(f"   - Item ID: {item_id}")
         print("   (This access token has been saved securely for future use.)")
         return

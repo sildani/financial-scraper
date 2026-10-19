@@ -134,3 +134,9 @@ def link_institution(item) -> str:
     """A Link's Institution name from Plaid's item, falling back to the Institution's ID, then the Link's item ID."""
     # Plaid documents institution_name and institution_id as nullable
     return item.get("institution_name") or item.get("institution_id") or item["item_id"]
+
+def link_label(item_id: str, institution: str) -> str:
+    """A Link as output names it: its Institution then its Link ID, or the Link ID alone when the Institution is unknown."""
+    link_id = item_id[:6]
+    # An unknown Institution falls back to the item ID, which the Link ID already shortens
+    return link_id if institution == item_id else f"{institution} [{link_id}]"
