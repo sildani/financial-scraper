@@ -27,12 +27,25 @@ Money paid toward a credit card from another of your Accounts. Neutral: not spen
 **Export**:
 A disposable point-in-time snapshot of Transactions written to Google Sheets. Each Export is rebuilt from scratch; there is no cumulative ledger across Exports.
 
-**Mode**:
-How a run obtains Transactions: either **Plaid mode** (live from linked Institutions) or **Statement mode** (from Statement PDFs). A run uses exactly one Mode; their data is never merged. Plaid mode is the primary one; Statement mode is the fallback for Institutions Plaid cannot reach.
-_Avoid_: mode for linking or re-linking; those are a run's other actions, not Modes
+**Source**:
+Where an Account's Transactions come from: **Plaid** (every Account on every Link) or **Download**. Every Account has exactly one Source, and one run exports both Sources together (ADR-0003). If an Account arrives from both, the Plaid copy wins and the Download is skipped.
+_Avoid_: Mode, Plaid mode, Statement mode (retired: a run no longer picks one)
+
+**Download**:
+A file of Transactions that you download from an Institution's own website for one Download Account: a CSV, OFX or similar export, or a Statement. The app opens the page and waits for the file in your downloads folder; you do the clicking (an assisted Download). A file dropped into `input/` by hand counts too.
+_Avoid_: scrape, statement (for a file that isn't a Statement)
+
+**Download Account**:
+An Account whose Source is Download, listed in the local Download Account config. Plaid Accounts are never listed there. Download Accounts exist only in Production.
+
+**Balance-only**:
+A Download Account that contributes a Balance and no Transactions, such as a closed card that still owes money. Coverage doesn't apply to it.
+
+**Coverage**:
+The dates a Download Account's files actually span within the Export window. A Plaid Account always covers the whole window. A Download Account may stop short, for example at its latest Statement's close.
 
 **Statement**:
-A billing-cycle PDF issued by an Institution. Only Statement mode reads Statements.
+A billing-cycle PDF issued by an Institution. A Statement is one kind of Download.
 
 **Transfer Out**:
 Money leaving your Accounts to someone else (e.g. Zelle, Venmo, wire). Counts as spending.
@@ -50,22 +63,22 @@ A Transaction's amount as the Institution presents it, so its sign depends on th
 The money-out value of a Transaction that counts as spending, positive regardless of Account kind. Transfer Outs and loan payments are Spend; Card Payments, Internal Transfers and Income are not. A Refund is negative Spend. Analysis totals use Spend, never Displayed amount.
 
 **Refund**:
-Money returned by a merchant for an earlier purchase. It is negative Spend in the purchase's Category, so totals net out; it is never Income. One known exception: in Plaid mode, a Refund that Plaid files as a transfer-in can't be told apart from money in from someone else, so it is treated as Income on a Deposit account and as an unpaired Linked Movement side on a Liability.
+Money returned by a merchant for an earlier purchase. It is negative Spend in the purchase's Category, so totals net out; it is never Income. One known exception: from Plaid, a Refund that Plaid files as a transfer-in can't be told apart from money in from someone else, so it is treated as Income on a Deposit account and as an unpaired Linked Movement side on a Liability.
 
 **Income**:
 Money in from outside your Accounts (wages, deposits). Reported separately and never netted against Spend.
 
 **Export window**:
-The date range of Transactions an Export covers. Defaults to today and the 30 days before it, both ends inclusive (31 days), and can be overridden per run.
+The date range of Transactions an Export covers. Defaults to today and the 30 days before it, both ends inclusive (31 days), and can be overridden per run. It applies to every Account, whatever its Source: a Download's Transactions outside it are dropped.
 
 **Balance**:
-An Account's current balance at the time of an Export, for any Account kind.
+An Account's balance, for any Account kind, with the date it is as of: the time of the Export for Plaid, or the close of the Statement it came from. Blank when a Download doesn't provide one.
 
 **Amount due**:
-What a Liability owes at the end of a Statement, with its due date. Only exists in Statement mode.
+What a Liability owes at the end of a Statement, with its due date. Only Statements provide it.
 
 **Partial Export**:
-An Export where one or more Links could not be fetched (Plaid mode) or one or more Statements could not be processed (Statement mode). It is allowed, but always marked incomplete and names what is missing: each Link by its Institution and Link ID, or each Statement's PDF file, since a Statement's Institution isn't known until it is processed.
+An Export where something is missing: a Link that could not be fetched, a Download Account whose Download didn't arrive or couldn't be processed (or whose Balance couldn't be obtained, if it is Balance-only), or a Download Account whose Coverage stops short of the Export window. It is allowed, but always marked incomplete and names what is missing: each Link by its Institution and Link ID, and each Download Account by its Institution and last four digits, with the date its Coverage reaches if it stops short.
 
 **Link**:
 One authorized connection to one Institution, which may cover several Accounts. A Link is Active or Needs re-link; re-linking replaces the old Link rather than adding a second one. A Link that needs re-linking causes a Partial Export.
@@ -75,4 +88,4 @@ The first 6 characters of a Link's Plaid Item ID. Output that names a Link alway
 _Avoid_: naming a Link by its Institution alone, or by Account masks
 
 **Environment**:
-Where Links come from: **Sandbox** (simulated Institutions, for testing) or **Production** (your real Institutions). Every Link and Export belongs to exactly one Environment, and Environments never mix.
+Where Links come from: **Sandbox** (simulated Institutions, for testing) or **Production** (your real Institutions). Every Link and Export belongs to exactly one Environment, and Environments never mix. Download Accounts belong to Production only.
