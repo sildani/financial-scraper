@@ -70,5 +70,9 @@ An Export where one or more Institutions could not be fetched (Plaid mode) or on
 **Link**:
 One authorized connection to one Institution, which may cover several Accounts. A Link is Active or Needs re-link; re-linking replaces the old Link rather than adding a second one. A Link that needs re-linking causes a Partial Export.
 
+**Link ID**:
+The first 6 characters of a Link's Plaid Item ID. Output that names a Link always shows its Institution then its Link ID, e.g. "First Gingham Credit Union [a1b2c3]", so two Links at one Institution can be told apart; a Link whose Institution is unknown is named by its Link ID alone. It needs no Plaid call and reveals nothing about the Link's Accounts.
+_Avoid_: naming a Link by its Institution alone, or by Account masks
+
 **Environment**:
 Where Links come from: **Sandbox** (simulated Institutions, for testing) or **Production** (your real Institutions). Every Link and Export belongs to exactly one Environment, and Environments never mix.
