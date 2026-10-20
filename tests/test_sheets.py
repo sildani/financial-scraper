@@ -156,7 +156,7 @@ def tab_rows(spreadsheet):
 
 
 class TabContentsTest(unittest.TestCase):
-    def test_a_plaid_mode_export_writes_every_tab(self):
+    def test_an_export_with_linked_movements_writes_every_tab(self):
         spreadsheet = FakeSpreadsheet()
         tabs = export_to_sheet(two_link_summaries(), TWO_LINK_MOVEMENTS, spreadsheet=spreadsheet)
         self.assertEqual(tab_rows(spreadsheet), {
@@ -172,7 +172,7 @@ class TabContentsTest(unittest.TestCase):
             "Summary": [banner, *SUMMARY_ROWS], "Details": DETAILS_ROWS, "Analysis": [banner, *ANALYSIS_ROWS], "LinkedMovements": LINKED_MOVEMENTS_ROWS,
         })
 
-    def test_a_statement_mode_export_has_no_linked_movements_tab(self):
+    def test_an_export_without_linked_movements_has_no_linked_movements_tab(self):
         spreadsheet = FakeSpreadsheet()
         tabs = export_to_sheet(two_link_summaries(), spreadsheet=spreadsheet)
         self.assertEqual(list(spreadsheet.tabs), ["Summary", "Details", "Analysis"])

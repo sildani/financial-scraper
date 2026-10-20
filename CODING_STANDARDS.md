@@ -12,7 +12,7 @@ These are the review conventions that no tool checks. Anything ruff or pyright c
    _Examples:_ `if not run_export(...).summaries: sys.exit(...)` and `if not run_relink(...).complete: sys.exit(...)` in `main.py`. Other `run_*` helpers, such as `run_hosted_link`, aren't bound by this rule.
 
 3. **Names, comments and output use the `GLOSSARY.md` vocabulary**, and output names a Link or an Account the way the glossary says.
-   _Why:_ one word per concept keeps code, output and discussion in step. `_Retired_:` terms will be checked by machine (#76). Everything else, including `_Avoid_:` terms, is the reviewer's call.
+   _Why:_ one word per concept keeps code, output and discussion in step. `_Retired_:` terms are checked by `scripts/check_glossary_terms.py`. Everything else, including `_Avoid_:` terms, is the reviewer's call.
    _Example:_ `link_label` in `src/schemas.py` names a Link by its Institution and then its Link ID, e.g. "First Gingham Credit Union [a1b2c3]".
 
 4. **Comments are short and say why, not what**, and they cite the ADR where one applies.
