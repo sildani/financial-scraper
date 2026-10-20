@@ -1,5 +1,7 @@
 # Glossary
 
+_Avoid_ lists words to steer away from where they would blur a term. _Retired_ lists words that must not appear anywhere in code or docs.
+
 **Transaction**:
 A single posted movement of money on an Account. Pending activity is not a Transaction.
 _Avoid_: line item, pending transaction
@@ -29,7 +31,7 @@ A disposable point-in-time snapshot of Transactions written to Google Sheets. Ea
 
 **Source**:
 Where an Account's Transactions come from: **Plaid** (every Account on every Link) or **Download**. Every Account has exactly one Source, and one run exports both Sources together (ADR-0003). If an Account arrives from both, the Plaid copy wins and the Download is skipped.
-_Avoid_: Mode, Plaid mode, Statement mode (retired: a run no longer picks one)
+_Retired_: Mode, Plaid mode, Statement mode (a run no longer picks one)
 
 **Download**:
 A file of Transactions that you download from an Institution's own website for one Download Account: a CSV, OFX or similar export, or a Statement. The app opens the page and waits for the file in your downloads folder; you do the clicking (an assisted Download). A file dropped into `input/` by hand counts too.
