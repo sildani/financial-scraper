@@ -5,7 +5,7 @@ from pathlib import Path
 
 from main import Action, parse_args, run_export, run_relink
 from src.download_accounts import DownloadAccount
-from src.downloads import Download, download_summary
+from src.downloads import Coverage, download
 from src.plaid_client import FailedLink, RelinkCheck
 from src.schemas import SpendingCategory, Transaction
 from tests.test_plaid_client import FakeResponse, plaid_error
@@ -76,7 +76,7 @@ class PlaidPartialExportTest(unittest.TestCase):
         tokens = {"a1b2c3-gingham": "access-first", "d4e5f6-gingham": "access-second", "item-platypus": "access-platypus"}
         spreadsheet, stdout = FakeSpreadsheet(), io.StringIO()
         with contextlib.redirect_stdout(stdout):
-            run_export(tokens, [], WINDOW, [], {}, spreadsheet=spreadsheet, client=client)
+            run_export(tokens, [], WINDOW, [], adapters={}, spreadsheet=spreadsheet, client=client)
         lines = stdout.getvalue().splitlines()
         self.assertIn("   ✗ First Gingham Credit Union [a1b2c3] needs re-linking (run --relink)", lines)
         self.assertIn("   ✗ First Gingham Credit Union [d4e5f6] failed with INSTITUTION_DOWN; try again later", lines)
@@ -105,7 +105,7 @@ class FakeAdapter:
             transaction_date=window.end.isoformat(), description=f"FROM {file.name}", clean_merchant="Pinecone Market",
             amount=20.00, category=SpendingCategory.GROCERIES, spend_amount=20.00,
         )
-        return Download(summary=download_summary(account, None, [purchase], 500.00), coverage=None)
+        return download(account, Coverage(start=window.start, end=window.end), [purchase], window, 500.00)
 
 
 def tartan(last4: str) -> DownloadAccount:
@@ -117,7 +117,7 @@ def export(accounts, input_files, adapter=None, tokens=None, client=None):
     spreadsheet, stdout = FakeSpreadsheet(), io.StringIO()
     with contextlib.redirect_stdout(stdout):
         result = run_export(
-            tokens or {}, accounts, WINDOW, [Path(f) for f in input_files], {"fake": adapter or FakeAdapter()},
+            tokens or {}, accounts, WINDOW, [Path(f) for f in input_files], adapters={"fake": adapter or FakeAdapter()},
             spreadsheet=spreadsheet, client=client or FakeLinksClient(failing={}, institutions={"access-platypus": "First Platypus Bank"}),
         )
     return result, spreadsheet, stdout.getvalue().splitlines()

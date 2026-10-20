@@ -114,7 +114,8 @@ class AdapterContractTest(unittest.TestCase):
             with self.subTest(case.name):
                 self.assertEqual(self.parsed(case).coverage, case.coverage)
 
-    def test_every_transaction_carries_the_accounts_institution_and_last_four_digits(self):
+    def test_the_download_is_named_by_the_accounts_institution_and_last_four_digits(self):
+        # Every Transaction's Details row takes its Institution and Account from the summary
         for case in contract_cases():
             with self.subTest(case.name):
                 summary = self.parsed(case).summary

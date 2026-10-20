@@ -150,12 +150,12 @@ class PlaidSandboxExportTest(unittest.TestCase):
             for access_token in cls.tokens.values():
                 wait_until_ready(client, access_token, window)
 
-            cls.full = run_export(cls.tokens, [], window, [], {}, spreadsheet=spreadsheet)
+            cls.full = run_export(cls.tokens, [], window, [], adapters={}, spreadsheet=spreadsheet)
             cls.tabs = list(cls.full.tabs)
             cls.full_sheet = SheetExport(spreadsheet, cls.full.tabs)
 
             force_relink(client, token_by_link["tartan"])
-            cls.partial = run_export(cls.tokens, [], window, [], {}, spreadsheet=spreadsheet)
+            cls.partial = run_export(cls.tokens, [], window, [], adapters={}, spreadsheet=spreadsheet)
             cls.tabs += cls.partial.tabs
             cls.partial_sheet = SheetExport(spreadsheet, cls.partial.tabs)
         except Exception:

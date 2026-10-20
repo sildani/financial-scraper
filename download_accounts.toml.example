@@ -18,7 +18,7 @@ institution = "First Platypus Bank"
 last4 = "1357"
 kind = "liability"
 
-# A closed card that still owes money contributes a Balance and no Transactions
+# Balance-only (not used yet): a closed card that still owes money will contribute a Balance and no Transactions
 [[account]]
 adapter = "statement"
 institution = "First Platypus Bank"

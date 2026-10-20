@@ -2,17 +2,17 @@ import sys
 import argparse
 from datetime import date
 from enum import Enum
+from pathlib import Path
 import time
 import webbrowser
 from typing import List
 import plaid
 from pydantic import BaseModel
 
-from pathlib import Path
 from src.config import DOWNLOAD_ACCOUNTS_FILE, INPUT_DIR, current_plaid_environment
 from src.adapters import adapters as all_adapters
 from src.download_accounts import DownloadAccount, load_download_accounts
-from src.downloads import fetch_downloads
+from src.downloads import Adapter, fetch_downloads
 from src.sheets import export_to_sheet
 from src.plaid_client import (
     create_link_token, exchange_public_token, fetch_links, load_tokens, get_public_token_from_link_session,
@@ -55,7 +55,7 @@ class Export(BaseModel):
     missing: List[str] = []  # Each failed Link, then each missing Download Account, as output names them
     tabs: List[str] = []  # Empty when no Export was written
 
-def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: ExportWindow, input_files: List[Path], adapters: dict, spreadsheet=None, client=None) -> Export:
+def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: ExportWindow, input_files: List[Path], adapters: dict[str, Adapter] | None = None, spreadsheet=None, client=None) -> Export:
     """
     One Export over window of every Account on every Link in tokens, then every Download Account
     from its file among input_files, written to the Environment's Sheet.
@@ -83,7 +83,7 @@ def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: E
 
     if download_accounts:
         print(f"\nReading Downloads from {INPUT_DIR.name}/...")
-    downloads = fetch_downloads(download_accounts, input_files, window, adapters)
+    downloads = fetch_downloads(download_accounts, input_files, window, adapters or all_adapters())
     summaries += [download.summary for download in downloads.downloads]
 
     missing = [link.label for link in fetched.failed] + [account.label for account in downloads.missing]
@@ -277,7 +277,7 @@ def main():
     if tokens:
         print("\nFetching transactions from Plaid...")
     input_files = [path for path in INPUT_DIR.glob("*") if path.is_file() and not path.name.startswith(".")]
-    if not run_export(tokens, download_accounts, window, input_files, adapters).summaries:
+    if not run_export(tokens, download_accounts, window, input_files, adapters=adapters).summaries:
         sys.exit("Error: no Link or Download Account could be fetched, so no Export was written")
 
 if __name__ == "__main__":

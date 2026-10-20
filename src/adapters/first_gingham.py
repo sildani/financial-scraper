@@ -2,7 +2,8 @@ import csv
 from datetime import date
 from pathlib import Path
 
-from src.downloads import Download, Fetch, clip, download_summary, in_window
+from src.download_accounts import DownloadAccount
+from src.downloads import Coverage, Download, Fetch, download
 from src.export_window import ExportWindow
 from src.schemas import SpendingCategory, Transaction, category_spend_and_income
 
@@ -43,20 +44,20 @@ class FirstGinghamAdapter:
             instructions=f"Choose CSV, {window.start.isoformat()} to {window.end.isoformat()}",
         )
 
-    def recognizes(self, file: Path, account) -> bool:
+    def recognizes(self, file: Path, account: DownloadAccount) -> bool:
         if file.suffix.lower() != ".csv":
             return False
         with open(file, newline="") as f:
             preamble = [row for _, row in zip(range(2), csv.reader(f))]
         return preamble == [[self.institution], ["Account ending", account.last4]]
 
-    def parse(self, file: Path, account, window: ExportWindow) -> Download:
+    def parse(self, file: Path, account: DownloadAccount, window: ExportWindow) -> Download:
         with open(file, newline="") as f:
             rows = list(csv.reader(f))
         header = rows.index(HEADER)
         preamble = {row[0]: row[1:] for row in rows[1:header]}
         from_date, _, to_date = preamble["From"]
-        coverage = clip(date.fromisoformat(from_date), date.fromisoformat(to_date), window)
+        span = Coverage(start=date.fromisoformat(from_date), end=date.fromisoformat(to_date))
         balance = float(preamble["Balance"][0]) if "Balance" in preamble else None
 
         transactions = []
@@ -68,16 +69,14 @@ class FirstGinghamAdapter:
             money_out = -float(amount)
             category = CATEGORY_MAPPING.get(vendor_category, SpendingCategory.OTHER)
             spend, income = category_spend_and_income(category, money_out)
-            tx = Transaction(
+            transactions.append(Transaction(
                 transaction_date=tx_date,
                 description=description,
                 clean_merchant=description,
                 # The Displayed amount follows the Account's kind (ADR-0001)
-                amount=money_out if account.kind == "liability" else -money_out,
+                amount=-money_out if account.kind == "deposit" else money_out,
                 category=category,
                 spend_amount=spend,
                 income_amount=income,
-            )
-            if in_window(tx, window):
-                transactions.append(tx)
-        return Download(summary=download_summary(account, coverage, transactions, balance), coverage=coverage)
+            ))
+        return download(account, span, transactions, window, balance)
