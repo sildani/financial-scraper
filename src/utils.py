@@ -1,6 +1,8 @@
 import hashlib
+from pathlib import Path
 
-def compute_md5(file_path: str) -> str:
+
+def compute_md5(file_path: str | Path) -> str:
     """Computes MD5 hash of a file to detect changes accurately."""
     hasher = hashlib.md5()
     with open(file_path, "rb") as f:

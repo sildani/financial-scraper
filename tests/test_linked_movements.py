@@ -3,7 +3,7 @@ from datetime import date
 
 from src.linked_movements import pair_linked_movements
 from src.plaid_transformer import summarize_link
-from tests.test_plaid_transformer import WINDOW, account, transaction, link_response
+from tests.test_plaid_transformer import WINDOW, account, link_response, transaction
 
 
 def pfc(detailed: str) -> dict:

@@ -3,6 +3,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
+
 import plaid
 from dotenv import load_dotenv
 

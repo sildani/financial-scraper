@@ -28,6 +28,8 @@ An Agentic AI pipeline built with Python, PydanticAI, and Google Gemini to extra
 - `input/`: Directory where Downloads (Statement PDFs, CSVs) are placed for processing.
 - `download_accounts.toml.example`: An example Download Account config.
 - `requirements.txt`: Project dependencies.
+- `requirements-dev.txt`: Pinned versions of the check tools (ruff, pyright, pre-commit).
+- `pyproject.toml`: ruff and pyright config.
 
 ## Setup
 
@@ -128,3 +130,15 @@ Connect directly to your financial institutions using Plaid.
 - If Plaid can't check a Link at all, the run names it by its Item ID, says it couldn't be checked, and offers the others.
 - A Link whose session finished counts as re-linked even if Plaid reports another error, such as the Institution being down, which re-linking can't fix. The summary shows that error code.
 - The run ends with a summary of which Links were re-linked, which still need it and which couldn't be checked, and exits with an error unless every Link was re-linked.
+
+## Development
+
+The same checks run in a pre-commit hook and in CI on every push and pull request: `ruff check`, `pyright` (basic mode) and the unit tests. Their config is in `pyproject.toml`, and the tool versions are pinned in `requirements-dev.txt`.
+
+```bash
+pip install -r requirements-dev.txt
+pre-commit install
+pre-commit run --all-files
+```
+
+Run them with the venv active, since the hook uses the tools installed there. The integration tests skip themselves without credentials, so CI needs none.

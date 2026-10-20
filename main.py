@@ -1,33 +1,48 @@
-import sys
 import argparse
+import sys
+import time
+import webbrowser
 from datetime import date
 from enum import Enum
 from pathlib import Path
-import time
-import webbrowser
-from typing import List
+from typing import Callable, List
+
 import plaid
 from pydantic import BaseModel
 
-from src.config import DOWNLOAD_ACCOUNTS_FILE, INPUT_DIR, current_plaid_environment
 from src.adapters import adapters as all_adapters
+from src.config import DOWNLOAD_ACCOUNTS_FILE, INPUT_DIR, current_plaid_environment
 from src.download_accounts import DownloadAccount, load_download_accounts
 from src.downloads import Adapter, fetch_downloads
-from src.sheets import export_to_sheet
+from src.export_window import ExportWindow, export_window, history_warning
+from src.linked_movements import LinkedMovements, pair_linked_movements
 from src.plaid_client import (
-    create_link_token, exchange_public_token, fetch_links, load_tokens, get_public_token_from_link_session,
-    links_needing_relink, link_session_finished, link_error_code, error_needs_relink, FailedLink, FetchedLinks, RelinkCheck,
-    get_plaid_client, institution_name, error_code as plaid_error_code,
+    FailedLink,
+    FetchedLinks,
+    LinksClient,
+    RelinkCheck,
+    create_link_token,
+    error_code as plaid_error_code,
+    error_needs_relink,
+    exchange_public_token,
+    fetch_links,
+    get_plaid_client,
+    get_public_token_from_link_session,
+    institution_name,
+    link_error_code,
+    link_session_finished,
+    links_needing_relink,
+    load_tokens,
 )
 from src.plaid_transformer import summarize_link
-from src.linked_movements import pair_linked_movements, LinkedMovements
-from src.export_window import export_window, history_warning, ExportWindow
 from src.schemas import AccountSummary, link_label
+from src.sheets import Spreadsheet, export_to_sheet
 
-def run_hosted_link(hosted_link_url, poll):
+
+def run_hosted_link[T](hosted_link_url: str, poll: Callable[[], T | None]):
     """Opens hosted Link in the browser and polls until poll() returns something truthy; None on timeout."""
-    print(f"1. Your browser will now open to complete the Plaid Link flow.")
-    print(f"   If it doesn't, please open this URL manually:")
+    print("1. Your browser will now open to complete the Plaid Link flow.")
+    print("   If it doesn't, please open this URL manually:")
     print(f"   {hosted_link_url}")
 
     webbrowser.open(hosted_link_url)
@@ -55,7 +70,7 @@ class Export(BaseModel):
     missing: List[str] = []  # Each failed Link, then each missing Download Account, as output names them
     tabs: List[str] = []  # Empty when no Export was written
 
-def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: ExportWindow, input_files: List[Path], adapters: dict[str, Adapter] | None = None, spreadsheet=None, client=None) -> Export:
+def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: ExportWindow, input_files: List[Path], adapters: dict[str, Adapter] | None = None, spreadsheet: Spreadsheet | None = None, client: LinksClient | None = None) -> Export:
     """
     One Export over window of every Account on every Link in tokens, then every Download Account
     from its file among input_files, written to the Environment's Sheet.
@@ -111,7 +126,7 @@ class RelinkRun(BaseModel):
     def complete(self) -> bool:
         return not self.needs_relink and not self.unchecked
 
-def run_relink(check: RelinkCheck, tokens: dict, relink_session=hosted_relink_session, error_code=link_error_code) -> RelinkRun:
+def run_relink(check: RelinkCheck, tokens: dict, relink_session: Callable[[str], bool] = hosted_relink_session, error_code: Callable[[str], str | None] = link_error_code) -> RelinkRun:
     """Offers each Link in check.needing for re-linking in turn, then lists how each one ended."""
     run = RelinkRun(unchecked=check.unchecked)
     print_unchecked(run.unchecked)
@@ -165,7 +180,7 @@ class Action(str, Enum):
     LINK = "link"
     RELINK = "relink"
 
-def parse_args(argv=None) -> argparse.Namespace:
+def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     """Parses the command line into args whose action is the Action the run does."""
     parser = argparse.ArgumentParser(
         description=(
@@ -236,7 +251,7 @@ def main():
 
         client = get_plaid_client()
         access_token, item_id = exchange_public_token(public_token.strip(), client=client)
-        print(f"\n✓ Successfully exchanged public token for an access token.")
+        print("\n✓ Successfully exchanged public token for an access token.")
         institution = institution_name(client, item_id, access_token)
         print(f"   - Link: {link_label(item_id, institution)}")
         print(f"   - Item ID: {item_id}")

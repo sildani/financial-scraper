@@ -1,5 +1,6 @@
 from datetime import date
 from pathlib import Path
+from typing import Callable, Optional
 
 from src.download_accounts import DownloadAccount
 from src.downloads import Coverage, Download, Fetch, download
@@ -11,9 +12,9 @@ from src.statements import statement_summary
 
 class StatementAdapter:
     """Any Institution's Statement PDF, read by Gemini. The Download Account config names the Institution."""
-    institution = None
+    institution: Optional[str] = None
 
-    def __init__(self, parse=process_statement_pdf, force: bool = False):
+    def __init__(self, parse: Callable[..., AccountSummary] = process_statement_pdf, force: bool = False):
         self._parse, self.force = parse, force
         self._gemini_parses: dict[Path, AccountSummary | Exception] = {}
 
@@ -27,9 +28,10 @@ class StatementAdapter:
                 self._gemini_parses[file] = self._parse(str(file), force_reprocess=self.force)
             except Exception as e:
                 self._gemini_parses[file] = e
-        if isinstance(self._gemini_parses[file], Exception):
-            raise self._gemini_parses[file]
-        return self._gemini_parses[file]
+        parsed = self._gemini_parses[file]
+        if isinstance(parsed, Exception):
+            raise parsed
+        return parsed
 
     def fetch(self, window: ExportWindow) -> Fetch:
         return Fetch(url=None, instructions=f"Download the Statement PDF that closes on or after {window.end.isoformat()}")
@@ -46,8 +48,9 @@ class StatementAdapter:
         span = Coverage(start=date.fromisoformat(parsed.period_start), end=date.fromisoformat(parsed.period_end))
         # The config's Account kind decides the Displayed amount's sign, not Gemini's guess (ADR-0001)
         statement = statement_summary(parsed.model_copy(update={"account_kind": account.kind}))
+        # statement_summary makes each one a Transaction, which AccountSummary's field type can't say
         return download(
-            account, span, statement.transactions, window, statement.balance,
+            account, span, statement.transactions, window, statement.balance,  # pyright: ignore[reportArgumentType]
             period=statement.period, amount_due=statement.amount_due, due_date=statement.due_date,
             interest_charged=statement.interest_charged,
         )

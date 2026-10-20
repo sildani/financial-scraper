@@ -1,12 +1,13 @@
-from datetime import datetime, timezone
 import time
-from typing import NamedTuple
+from datetime import datetime, timezone
+from typing import Any, Callable, NamedTuple, Protocol, Sequence
+
 import gspread
 
-from src.schemas import AccountSummary
-from src.linked_movements import LinkedMovements, MovementSide
 from src.analysis import analyze
 from src.config import SERVICE_ACCOUNT_FILE, current_plaid_environment
+from src.linked_movements import LinkedMovements, MovementSide
+from src.schemas import AccountSummary
 
 SHEETS_ATTEMPTS = 3
 SHEETS_RETRY_DELAY_S = 5
@@ -18,15 +19,20 @@ class Tab(NamedTuple):
     size: tuple[int, int]  # (rows, cols) when added; appending past them grows the tab
 
 
+class Spreadsheet(Protocol):
+    """The part of a gspread Spreadsheet the Export writes through."""
+    def add_worksheet(self, title: str, rows: int, cols: int) -> Any: ...
+
+
 def get_gspread_client() -> gspread.Client:
     return gspread.service_account(filename=SERVICE_ACCOUNT_FILE)
 
 
-def open_export_spreadsheet():
+def open_export_spreadsheet() -> Spreadsheet:
     return get_gspread_client().open_by_key(current_plaid_environment().spreadsheet_id)
 
 
-def export_to_sheet(summaries: list[AccountSummary], movements: LinkedMovements | None = None, missing: list[str] = (), spreadsheet=None, sleep=time.sleep):
+def export_to_sheet(summaries: list[AccountSummary], movements: LinkedMovements | None = None, missing: Sequence[str] = (), spreadsheet: Spreadsheet | None = None, sleep: Callable[[float], None] = time.sleep):
     """Exports structured data to timestamped tabs:
     - Summary_YYYYMMDDHHMMSS
     - Details_YYYYMMDDHHMMSS
@@ -52,7 +58,7 @@ def export_to_sheet(summaries: list[AccountSummary], movements: LinkedMovements 
     return list(titles.values())
 
 
-def write_with_retries(write, sleep=time.sleep):
+def write_with_retries[T](write: Callable[[], T], sleep: Callable[[float], None] = time.sleep):
     """write(), retried after a delay while Google Sheets is unavailable."""
     for attempt in range(1, SHEETS_ATTEMPTS + 1):
         try:
@@ -63,9 +69,10 @@ def write_with_retries(write, sleep=time.sleep):
                 raise
             print(f"   ! Google Sheets API unavailable (503). Retrying in {SHEETS_RETRY_DELAY_S} seconds... ({attempt}/{SHEETS_ATTEMPTS})")
             sleep(SHEETS_RETRY_DELAY_S)
+    raise AssertionError("unreachable: the last attempt returns or raises")
 
 
-def write_tabs(spreadsheet, tabs: dict[str, Tab]) -> dict[str, str]:
+def write_tabs(spreadsheet: Spreadsheet, tabs: dict[str, Tab]) -> dict[str, str]:
     """Adds each tab to spreadsheet under one timestamp, with its rows; returns each tab's title by name."""
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     titles = {}

@@ -6,11 +6,11 @@ from datetime import date
 import gspread
 
 from src.linked_movements import LinkedMovements, MovementSide
+from src.plaid_transformer import summarize_link
 from src.schemas import AccountSummary, SpendingCategory, Transaction
 from src.sheets import export_to_sheet
 from tests.test_analysis import sandbox_gingham
 from tests.test_plaid_transformer import NO_MOVEMENTS, WINDOW
-from src.plaid_transformer import summarize_link
 
 
 class FakeWorksheet:
@@ -67,7 +67,7 @@ class FlakySpreadsheet(FakeSpreadsheet):
     def add_worksheet(self, title, rows, cols):
         self.titles.append(title.split("_")[0])
         if len(self.titles) in self.failing_calls:
-            raise gspread.exceptions.APIError(FakeResponse(self.status_code))
+            raise gspread.exceptions.APIError(FakeResponse(self.status_code))  # pyright: ignore[reportArgumentType]  # Stands in for requests' Response
         return super().add_worksheet(title, rows, cols)
 
 

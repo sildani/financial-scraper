@@ -1,18 +1,23 @@
-import plaid
 import json
-from typing import List, Optional
-from pydantic import BaseModel
+from datetime import date
+from pathlib import Path
+from typing import Any, List, Optional, Protocol
+
+import plaid
 from plaid.api import plaid_api
+from plaid.model.country_code import CountryCode
 from plaid.model.item_get_request import ItemGetRequest
+from plaid.model.item_public_token_exchange_request import (
+    ItemPublicTokenExchangeRequest,
+)
 from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
+from plaid.model.link_token_get_request import LinkTokenGetRequest
 from plaid.model.link_token_transactions import LinkTokenTransactions
 from plaid.model.products import Products
-from plaid.model.link_token_get_request import LinkTokenGetRequest
-from plaid.model.country_code import CountryCode
-from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
 from plaid.model.transactions_get_request import TransactionsGetRequest
 from plaid.model.transactions_get_request_options import TransactionsGetRequestOptions
+from pydantic import BaseModel
 
 from src.config import PLAID_CLIENT_ID, PLAID_SECRET, current_plaid_environment
 from src.schemas import link_institution, link_label
@@ -22,7 +27,29 @@ PLAID_COUNTRY_CODES = [CountryCode("US")]
 # Plaid's maximum; without it a Link only has about 90 days, which caps the Export window
 PLAID_DAYS_REQUESTED = 730
 
-def get_plaid_client():
+
+# The Plaid API calls each function makes, so a test fake need only have those; PlaidApi has them all
+class LinkTokenClient(Protocol):
+    def link_token_create(self, request: Any, /) -> Any: ...
+
+
+class LinkSessionClient(Protocol):
+    def link_token_get(self, request: Any, /) -> Any: ...
+
+
+class ItemClient(Protocol):
+    def item_get(self, request: Any, /) -> Any: ...
+
+
+class TransactionsClient(Protocol):
+    def transactions_get(self, request: Any, /) -> Any: ...
+
+
+class LinksClient(ItemClient, TransactionsClient, Protocol):
+    pass
+
+
+def get_plaid_client() -> plaid_api.PlaidApi:
     configuration = plaid.Configuration(
         host=current_plaid_environment().host,
         api_key={
@@ -33,7 +60,7 @@ def get_plaid_client():
     api_client = plaid.ApiClient(configuration)
     return plaid_api.PlaidApi(api_client)
 
-def create_link_token(access_token=None, client=None):
+def create_link_token(access_token: str | None = None, client: LinkTokenClient | None = None):
     """
     Creates a hosted Link token for a new Link, or with access_token, for re-linking that Link
     in update mode, which repairs it in place instead of adding a second Link.
@@ -55,7 +82,7 @@ def create_link_token(access_token=None, client=None):
     response = client.link_token_create(request)
     return response["link_token"], response["hosted_link_url"]
 
-def exchange_public_token(public_token, client=None):
+def exchange_public_token(public_token: str, client: plaid_api.PlaidApi | None = None):
     client = client or get_plaid_client()
     request = ItemPublicTokenExchangeRequest(public_token=public_token)
     response = client.item_public_token_exchange(request)
@@ -64,7 +91,7 @@ def exchange_public_token(public_token, client=None):
     save_token(item_id, access_token)
     return access_token, item_id
 
-def get_transactions(access_token, start_date, end_date, client=None):
+def get_transactions(access_token: str, start_date: date, end_date: date, client: TransactionsClient | None = None):
     """
     Fetches one Link's Transactions for the Export window. Plaid returns at most 500 per call,
     so this pages until it has total_transactions.
@@ -115,7 +142,7 @@ class FetchedLinks(BaseModel):
     failed: List[FailedLink]  # Any failed Link makes the Export a Partial Export
 
 
-def fetch_links(tokens: dict, start_date, end_date, client=None) -> FetchedLinks:
+def fetch_links(tokens: dict, start_date: date, end_date: date, client: LinksClient | None = None) -> FetchedLinks:
     """Fetches every Link's Transactions; a Link that fails is reported instead of failing the run."""
     client = client or get_plaid_client()
     responses, failed = [], []
@@ -127,7 +154,7 @@ def fetch_links(tokens: dict, start_date, end_date, client=None) -> FetchedLinks
     return FetchedLinks(responses=responses, failed=failed)
 
 
-def institution_name(client, item_id: str, access_token: str) -> str:
+def institution_name(client: ItemClient, item_id: str, access_token: str) -> str:
     # /item/get still answers for a Link that needs re-linking, but not for every failure
     try:
         item = client.item_get(ItemGetRequest(access_token=access_token))["item"]
@@ -139,7 +166,7 @@ def institution_name(client, item_id: str, access_token: str) -> str:
 def error_code(e: plaid.ApiException) -> str:
     # Plaid errors carry a JSON body; a transport failure may not
     try:
-        return json.loads(e.body)["error_code"]
+        return json.loads(e.body or "")["error_code"]
     except (TypeError, ValueError, KeyError):
         return "UNKNOWN"
 
@@ -149,7 +176,7 @@ class RelinkCheck(BaseModel):
     unchecked: List[FailedLink]  # /item/get raised, so whether they need re-linking is unknown
 
 
-def links_needing_relink(client=None, tokens=None) -> RelinkCheck:
+def links_needing_relink(client: ItemClient | None = None, tokens: dict | None = None) -> RelinkCheck:
     """Every Link in tokens (default: the Environment's token store) whose /item/get says it needs re-linking;
     a Link whose /item/get raises is reported instead of failing the run."""
     client = client or get_plaid_client()
@@ -183,7 +210,7 @@ def link_session_finished(link_token: str) -> bool:
     return any(session.get("finished_at") for session in response.get("link_sessions") or [])
 
 
-def get_public_token_from_link_session(link_token: str, client=None) -> str | None:
+def get_public_token_from_link_session(link_token: str, client: LinkSessionClient | None = None) -> str | None:
     """
     Polls the /link/token/get endpoint to see if the Link flow is complete.
     Returns the public_token if available, otherwise None.
@@ -199,21 +226,21 @@ def get_public_token_from_link_session(link_token: str, client=None) -> str | No
                 return item_result["public_token"]
     return None
 
-def save_token(item_id, access_token, token_file=None):
+def save_token(item_id: str, access_token: str, token_file: Path | None = None):
     tokens = load_tokens(token_file)
     tokens[item_id] = access_token
     write_tokens(tokens, token_file)
 
-def remove_token(item_id, token_file=None):
+def remove_token(item_id: str, token_file: Path | None = None):
     tokens = load_tokens(token_file)
     tokens.pop(item_id, None)
     write_tokens(tokens, token_file)
 
-def write_tokens(tokens: dict, token_file=None):
+def write_tokens(tokens: dict, token_file: Path | None = None):
     with open(token_file or current_plaid_environment().token_file, "w") as f:
         json.dump(tokens, f, indent=2)
 
-def load_tokens(token_file=None):
+def load_tokens(token_file: Path | None = None) -> dict:
     token_file = token_file or current_plaid_environment().token_file
     if not token_file.exists():
         return {}

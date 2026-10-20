@@ -6,7 +6,17 @@ from pathlib import Path
 
 import plaid
 
-from src.plaid_client import FailedLink, create_link_token, fetch_links, get_public_token_from_link_session, get_transactions, links_needing_relink, load_tokens, remove_token, save_token
+from src.plaid_client import (
+    FailedLink,
+    create_link_token,
+    fetch_links,
+    get_public_token_from_link_session,
+    get_transactions,
+    links_needing_relink,
+    load_tokens,
+    remove_token,
+    save_token,
+)
 
 
 def plaid_error(error_code):

@@ -2,7 +2,6 @@ import unittest
 
 from src.config import BASE_DIR, plaid_environment
 
-
 BOTH_SHEETS = {"SPREADSHEET_ID_SANDBOX": "test-sheet", "SPREADSHEET_ID_PRODUCTION": "real-sheet"}
 
 

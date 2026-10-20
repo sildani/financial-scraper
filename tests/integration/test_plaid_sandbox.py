@@ -16,11 +16,16 @@ import plaid
 from gspread.utils import ValueRenderOption
 
 from main import run_export
+from scripts.seed_sandbox import (
+    create_fixture_link,
+    force_relink,
+    load_links,
+    remove_link,
+)
 from src.config import BASE_DIR, current_plaid_environment
 from src.export_window import export_window
 from src.plaid_client import get_plaid_client, get_transactions
 from src.sheets import get_gspread_client
-from scripts.seed_sandbox import load_links, create_fixture_link, remove_link, force_relink
 
 READY_TIMEOUT_S = 60
 PRODUCTION_TOKEN_FILE = BASE_DIR / ".plaid_tokens.production.json"
@@ -242,7 +247,7 @@ def wait_until_ready(client, access_token, window):
             get_transactions(access_token, window.start, window.end, client=client)
             return
         except plaid.ApiException as e:
-            if json.loads(e.body).get("error_code") != "PRODUCT_NOT_READY" or time.time() > deadline:
+            if json.loads(e.body or "{}").get("error_code") != "PRODUCT_NOT_READY" or time.time() > deadline:
                 raise
         time.sleep(2)
 
