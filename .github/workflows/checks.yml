@@ -1,7 +1,9 @@
 name: checks
 
 on:
+  # Other branches are checked by pull_request, so pushing to one doesn't run the job twice
   push:
+    branches: [main]
   pull_request:
 
 permissions:
