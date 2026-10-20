@@ -133,7 +133,7 @@ Connect directly to your financial institutions using Plaid.
 
 ## Development
 
-The same checks run in a pre-commit hook and in CI on every pull request and every push to `main`: `ruff check`, `pyright` (basic mode) and the unit tests. Their config is in `pyproject.toml`, and the tool versions are pinned in `requirements-dev.txt`.
+The pre-commit hook runs the checks listed in `.pre-commit-config.yaml`, and CI runs that same file on every pull request and every push to `main`: `ruff check`, `pyright` (basic mode) and the unit tests. Their config is in `pyproject.toml`, and the tool versions are pinned in `requirements-dev.txt`.
 
 ```bash
 pip install -r requirements-dev.txt
@@ -141,4 +141,4 @@ pre-commit install
 pre-commit run --all-files
 ```
 
-Run them with the venv active, since the hook uses the tools installed there. The integration tests skip themselves without credentials, so CI needs none.
+The hooks run the tools from `.venv`, so it must exist at the repo root (see Setup), but it needn't be active. The integration tests skip themselves without credentials, so CI needs none.
