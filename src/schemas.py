@@ -25,7 +25,7 @@ class SpendAndIncome(NamedTuple):
 
 def category_spend_and_income(category: SpendingCategory, money_out: float) -> SpendAndIncome:
     """
-    A Transaction's Spend and Income as its Category alone decides them, in both Modes, from its money-out
+    A Transaction's Spend and Income as its Category alone decides them, whatever its Source, from its money-out
     amount. Payments & Credits (Card Payments, Internal Transfers and a loan's own side of a loan payment)
     is neither, and Income & Deposits is Income.
     """
@@ -47,7 +47,7 @@ class ParsedTransaction(BaseModel):
     amount: float = Field(description="Positive decimal value for spend/debits, negative for credits/payments/deposits")  # Money-out sign until statement_summary()
     category: SpendingCategory = Field(description="Categorization based on vendor or transaction type")
 
-    # Methods, not fields, so they stay out of the Gemini output schema. Statement mode has no
+    # Methods, not fields, so they stay out of the Gemini output schema. A Statement has no
     # Linked Movements, so Spend follows Category alone; Gemini's amounts are positive for money out.
     def spend(self) -> Optional[float]:
         return category_spend_and_income(self.category, self.amount).spend
@@ -59,7 +59,7 @@ class ParsedTransaction(BaseModel):
 class Transaction(ParsedTransaction):
     """
     A Transaction whose amount is its Displayed amount and whose Spend and Income are already decided:
-    from Plaid's data and Linked Movements in Plaid mode, or from Gemini's money-out amount in Statement mode.
+    from Plaid's data and Linked Movements for a Plaid Account, or from its money-out amount for a Download.
     """
     spend_amount: Optional[float] = None  # None when the Transaction isn't Spend
     income_amount: Optional[float] = None  # None when the Transaction isn't Income
@@ -79,8 +79,10 @@ class AccountSummary(BaseModel):
     institution: str = Field(description="Name of the financial institution, e.g., Amex, Citi, Chase, Bank of America, Goldman Sachs")
     account_name: str = Field(description="Account descriptor or last 4 digits (e.g., 'Amex Gold - 1004', 'Checking - 8821')")
     period: str = Field(description="Statement period string, e.g., 'Aug 01, 2026 - Aug 31, 2026'")
+    period_start: Optional[str] = Field(default=None, description="First day of the statement period in YYYY-MM-DD format")
+    period_end: Optional[str] = Field(default=None, description="Last day of the statement period (its closing date) in YYYY-MM-DD format")
     account_kind: AccountKind = Field(description="'liability' for a credit card or loan statement, 'deposit' for checking or savings")
-    balance: float = Field(description="The account's new or ending balance at the end of the statement period")
+    balance: Optional[float] = Field(default=None, description="The account's new or ending balance at the end of the statement period")
     amount_due: Optional[float] = Field(default=None, description="Total amount due, only for a credit card or loan statement; null for checking or savings")
     due_date: Optional[str] = Field(default=None, description="Payment due date in YYYY-MM-DD format, only for a credit card or loan statement; null for checking or savings")
     interest_charged: Optional[float] = Field(default=0.0, description="Total interest or fees charged, if applicable")

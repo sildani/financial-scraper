@@ -31,8 +31,8 @@ def export_to_sheet(summaries: list[AccountSummary], movements: LinkedMovements 
     - Summary_YYYYMMDDHHMMSS
     - Details_YYYYMMDDHHMMSS
     - Analysis_YYYYMMDDHHMMSS
-    - LinkedMovements_YYYYMMDDHHMMSS, only when movements are given (Plaid mode)
-    A Partial Export names what is missing (each Link, or each Statement's PDF file) in a banner atop Summary and Analysis.
+    - LinkedMovements_YYYYMMDDHHMMSS, only when movements are given (some Link was fetched)
+    A Partial Export names what is missing (each Link, then each Download Account) in a banner atop Summary and Analysis.
     Returns the names of the tabs it wrote.
     """
     banner = [[f"INCOMPLETE: missing {', '.join(missing)}"]] if missing else []

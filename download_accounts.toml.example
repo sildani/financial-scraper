@@ -1,0 +1,27 @@
+# Download Accounts: the Accounts Plaid can't reach, read from files you download from each Institution.
+# Copy this to download_accounts.toml (gitignored) and list your own. It's read only in Production.
+# Never list an Account that's on a Link.
+
+# Where assisted Downloads land (default ~/Downloads); not used yet
+# downloads_dir = "~/Downloads"
+
+# A vendor adapter names the Institution itself
+[[account]]
+adapter = "first_gingham"
+last4 = "4321"
+kind = "liability"   # liability (credit card, loan) or deposit (checking, savings, anything else)
+
+# The Statement adapter reads any Institution's Statement PDF, so the entry names the Institution
+[[account]]
+adapter = "statement"
+institution = "First Platypus Bank"
+last4 = "1357"
+kind = "liability"
+
+# Balance-only (not used yet): a closed card that still owes money will contribute a Balance and no Transactions
+[[account]]
+adapter = "statement"
+institution = "First Platypus Bank"
+last4 = "2468"
+kind = "liability"
+balance_only = true

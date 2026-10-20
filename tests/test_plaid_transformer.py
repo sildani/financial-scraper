@@ -183,7 +183,7 @@ class LinkSummaryTest(unittest.TestCase):
         summaries = summarize_link(link_response([dormant_savings, card], []), WINDOW, NO_MOVEMENTS)
         self.assertEqual([s.balance for s in summaries], [5000.00, 1250.00])
 
-    def test_amount_due_only_exists_in_statement_mode(self):
+    def test_amount_due_only_comes_from_statements(self):
         summary = summarize_link(link_response([account()], []), WINDOW, NO_MOVEMENTS)[0]
         self.assertEqual((summary.amount_due, summary.due_date), (None, None))
 

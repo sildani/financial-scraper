@@ -9,7 +9,6 @@ from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.google import GoogleModel
 
 from src.schemas import AccountSummary
-from src.statements import statement_summary
 from src.config import CACHE_DIR
 from src.utils import compute_md5
 
@@ -46,7 +45,7 @@ def call_gemini_with_retries(call, sleep=time.sleep):
             sleep(delay)
 
 def process_statement_pdf(pdf_path: str, force_reprocess: bool = False) -> AccountSummary:
-    """Processes PDF using Gemini, caching its parse by MD5 file hash."""
+    """Gemini's parse of a Statement PDF, cached by MD5 file hash; its amounts are positive for money out."""
     file_hash = compute_md5(pdf_path)
     cache_file = CACHE_DIR / f"{file_hash}.json"
 
@@ -55,7 +54,7 @@ def process_statement_pdf(pdf_path: str, force_reprocess: bool = False) -> Accou
         print(f"   ↳ [CACHE HIT] Loading cached data for MD5: {file_hash[:8]}...")
         with open(cache_file, "r") as f:
             cached_data = json.load(f)
-        return statement_summary(AccountSummary.model_validate(cached_data))
+        return AccountSummary.model_validate(cached_data)
 
     # API Call on Cache Miss or Force Flag
     print(f"   ↳ [API CALL] Sending to Gemini (MD5: {file_hash[:8]})...")
@@ -78,4 +77,4 @@ def process_statement_pdf(pdf_path: str, force_reprocess: bool = False) -> Accou
     with open(cache_file, "w") as f:
         f.write(summary.model_dump_json(indent=2))
 
-    return statement_summary(summary)
+    return summary

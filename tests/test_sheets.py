@@ -72,7 +72,7 @@ class FlakySpreadsheet(FakeSpreadsheet):
 
 
 def two_link_summaries():
-    """A card at one Institution and checking at another, as Plaid mode summarizes them."""
+    """A card at one Institution and checking at another, as Plaid summarizes them."""
     card = AccountSummary(
         institution="First Gingham Credit Union", account_name="Credit card (9496)", period="2026-09-17 to 2026-10-17",
         account_kind="liability", balance=1250.0, transactions=[

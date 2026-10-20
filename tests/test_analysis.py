@@ -176,7 +176,7 @@ class CachedStatementTest(unittest.TestCase):
 
 
 class StatementSpendTest(unittest.TestCase):
-    # Nothing is paired in Statement mode, so Spend follows Category alone
+    # Nothing is paired on a Statement, so Spend follows Category alone
 
     def test_deposit_account_shows_money_in_as_positive_and_spend_is_unchanged(self):
         summary = statement("deposit",

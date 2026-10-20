@@ -87,7 +87,7 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
                 category = PLAID_CATEGORY_MAPPING[best_match_key]
 
         # Spend and Income are money-out and money-in values, so they use Plaid's own sign.
-        # Plaid mode re-decides only what Category alone would call Spend.
+        # Plaid Accounts re-decide only what Category alone would call Spend.
         by_category = category_spend_and_income(category, tx.amount)
         spend_amount, income_amount = by_category
         if by_category.spend is not None:
