@@ -72,16 +72,18 @@ def environ_without_gemini_key():
     return {name: value for name, value in os.environ.items() if name not in GEMINI_KEY_VARIABLES}
 
 
-class WithoutGeminiKeyTest(unittest.TestCase):
+class ImportWithoutGeminiKeyTest(unittest.TestCase):
     def test_the_gemini_module_and_statement_adapter_import_without_a_key(self):
         # load_dotenv() is stubbed out so a .env here or in a parent directory can't supply a key.
         imported = subprocess.run(
             [sys.executable, "-B", "-c",
              "import dotenv; dotenv.load_dotenv = lambda *args, **kwargs: False; import src.llm, src.adapters.statement"],
-            env=environ_without_gemini_key(), capture_output=True, text=True,
+            cwd=Path(__file__).parents[1], env=environ_without_gemini_key(), capture_output=True, text=True,
         )
         self.assertEqual(imported.returncode, 0, imported.stderr)
 
+
+class ParseWithoutGeminiKeyTest(unittest.TestCase):
     def setUp(self):
         llm.statement_agent.cache_clear()
         self.addCleanup(llm.statement_agent.cache_clear)
@@ -108,6 +110,7 @@ class WithoutGeminiKeyTest(unittest.TestCase):
         with self.assertRaisesRegex(UserError, "GOOGLE_API_KEY"):
             self.parsed()
         self.assertEqual([file.name for file in self.cache_dir.iterdir()], ["statement.pdf"])
+
 
 if __name__ == "__main__":
     unittest.main()
