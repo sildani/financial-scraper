@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 from typing import Optional
+
 from pydantic import BaseModel
 
 DEFAULT_DAYS = 30

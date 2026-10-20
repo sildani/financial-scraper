@@ -5,7 +5,7 @@ from pathlib import Path
 
 from main import Action, parse_args, run_export, run_relink
 from src.download_accounts import DownloadAccount
-from src.downloads import Coverage, download
+from src.downloads import Coverage, Fetch, download
 from src.plaid_client import FailedLink, RelinkCheck
 from src.schemas import SpendingCategory, Transaction
 from tests.test_plaid_client import FakeResponse, plaid_error
@@ -93,6 +93,9 @@ class FakeAdapter:
 
     def __init__(self, failing=()):
         self.failing, self.parsed = failing, []
+
+    def fetch(self, window):
+        return Fetch(url=None, instructions="Download it")
 
     def recognizes(self, file, account):
         return account.last4 in file.name

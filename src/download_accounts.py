@@ -1,6 +1,7 @@
 import tomllib
 from pathlib import Path
 from typing import List, Optional
+
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from src.schemas import AccountKind

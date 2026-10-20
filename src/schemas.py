@@ -1,7 +1,7 @@
-from decimal import Decimal
-from enum import Enum
-from typing import Literal, NamedTuple, Optional, List
 from datetime import date
+from enum import Enum
+from typing import List, Literal, NamedTuple, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -132,7 +132,7 @@ class PlaidPersonalFinanceCategory(BaseModel):
     detailed: str
 
 
-def link_institution(item) -> str:
+def link_institution(item: dict) -> str:
     """A Link's Institution name from Plaid's item, falling back to the Institution's ID, then the Link's item ID."""
     # Plaid documents institution_name and institution_id as nullable
     return item.get("institution_name") or item.get("institution_id") or item["item_id"]

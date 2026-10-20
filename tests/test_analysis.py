@@ -3,9 +3,9 @@ import unittest
 from src.analysis import analyze
 from src.linked_movements import pair_linked_movements
 from src.plaid_transformer import summarize_link
-from tests.test_linked_movements import CHECKING, SAVINGS, AUTO_LOAN, CARD, side
 from src.schemas import AccountSummary, ParsedTransaction, Transaction
 from src.statements import statement_summary
+from tests.test_linked_movements import AUTO_LOAN, CARD, CHECKING, SAVINGS, side
 from tests.test_plaid_transformer import WINDOW, account, link_response
 
 

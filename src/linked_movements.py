@@ -1,5 +1,6 @@
 from datetime import date
 from typing import List, Literal, Tuple
+
 from pydantic import BaseModel
 
 from src.schemas import PlaidAccount, PlaidTransaction, link_institution
@@ -109,7 +110,8 @@ def is_movement(tx: PlaidTransaction) -> bool:
 
 
 def is_own_account_movement(c: Candidate) -> bool:
-    if c.tx.personal_finance_category.detailed.startswith(OWN_ACCOUNT_CATEGORY_PREFIXES):
+    category = c.tx.personal_finance_category  # Set on every movement: is_movement requires it
+    if category and category.detailed.startswith(OWN_ACCOUNT_CATEGORY_PREFIXES):
         return True
     # Money arriving on a Liability is a payment toward it, whatever Plaid calls it
     return c.account.kind == "liability" and c.side.direction == "received"

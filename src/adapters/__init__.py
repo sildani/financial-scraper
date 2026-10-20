@@ -1,6 +1,6 @@
-from src.downloads import Adapter
 from src.adapters.first_gingham import FirstGinghamAdapter
 from src.adapters.statement import StatementAdapter
+from src.downloads import Adapter
 
 
 def adapters(force: bool = False) -> dict[str, Adapter]:

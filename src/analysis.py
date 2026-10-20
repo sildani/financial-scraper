@@ -1,5 +1,6 @@
 from collections import defaultdict
 from typing import Dict, List
+
 from pydantic import BaseModel
 
 from src.schemas import AccountSummary

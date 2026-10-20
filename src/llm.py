@@ -1,20 +1,24 @@
 import warnings
+
 warnings.filterwarnings("ignore", category=UserWarning)
 
 import json
 import random
 import time
 from functools import cache
+from typing import Callable
+
 from pydantic_ai import Agent, BinaryContent
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.google import GoogleModel
 
-from src.schemas import AccountSummary
 from src.config import CACHE_DIR
+from src.schemas import AccountSummary
 from src.utils import compute_md5
 
+
 @cache
-def statement_agent() -> Agent:
+def statement_agent() -> Agent[None, AccountSummary]:
     """Gemini's Statement parser, built on first use so importing this module needs no API key."""
     return Agent(
         GoogleModel('gemini-3.6-flash'),
@@ -34,7 +38,7 @@ GEMINI_ATTEMPTS = 4
 GEMINI_RETRY_BASE_DELAY_S = 5
 GEMINI_UNAVAILABLE_STATUS_CODES = (429, 503)  # Too many requests, or the model is overloaded
 
-def call_gemini_with_retries(call, sleep=time.sleep):
+def call_gemini_with_retries[T](call: Callable[[], T], sleep: Callable[[float], None] = time.sleep):
     """call(), retried with growing, jittered delays while Gemini is unavailable."""
     for attempt in range(1, GEMINI_ATTEMPTS + 1):
         try:
@@ -45,6 +49,7 @@ def call_gemini_with_retries(call, sleep=time.sleep):
             delay = GEMINI_RETRY_BASE_DELAY_S * 2 ** (attempt - 1) * random.uniform(1, 1.5)
             print(f"   ↳ [RETRY] Gemini unavailable ({e.status_code}); retrying in {delay:.0f}s (attempt {attempt + 1}/{GEMINI_ATTEMPTS})")
             sleep(delay)
+    raise AssertionError("unreachable: the last attempt returns or raises")
 
 def process_statement_pdf(pdf_path: str, force_reprocess: bool = False) -> AccountSummary:
     """Gemini's parse of a Statement PDF, cached by MD5 file hash; its amounts are positive for money out."""

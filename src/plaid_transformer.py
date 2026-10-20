@@ -1,7 +1,16 @@
-from typing import List, Set
-from src.schemas import PlaidTransaction, PlaidAccount, AccountSummary, Transaction, SpendingCategory, link_institution, category_spend_and_income
-from src.linked_movements import LinkedMovements
+from typing import AbstractSet, List
+
 from src.export_window import ExportWindow
+from src.linked_movements import LinkedMovements
+from src.schemas import (
+    AccountSummary,
+    PlaidAccount,
+    PlaidTransaction,
+    SpendingCategory,
+    Transaction,
+    category_spend_and_income,
+    link_institution,
+)
 
 # A mapping from Plaid's personal finance categories to our fixed Categories, keyed by
 # PFCv2 detailed code or a prefix of one (the longest matching key wins). Taxonomy:
@@ -58,7 +67,7 @@ def summarize_link(response: dict, window: ExportWindow, movements: LinkedMoveme
         for account in accounts
     ]
 
-def transform_plaid_transactions(transactions: List[PlaidTransaction], account: PlaidAccount, window: ExportWindow, institution: str, movement_ids: Set[str] = frozenset()) -> AccountSummary:
+def transform_plaid_transactions(transactions: List[PlaidTransaction], account: PlaidAccount, window: ExportWindow, institution: str, movement_ids: AbstractSet[str] = frozenset()) -> AccountSummary:
     """
     Transforms a list of Plaid transactions for a given account into an AccountSummary.
     movement_ids are the transaction IDs of every Linked Movement side, paired or not.

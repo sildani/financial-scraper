@@ -1,6 +1,7 @@
 from datetime import date
 from pathlib import Path
 from typing import List, Optional, Protocol
+
 from pydantic import BaseModel
 
 from src.config import INPUT_DIR
@@ -32,12 +33,15 @@ class Download(BaseModel):
 
 class Adapter(Protocol):
     """Fetches and parses one vendor's Downloads."""
-    institution: Optional[str]  # None when the Download Account config names it, as for the Statement adapter
+    @property
+    def institution(self) -> Optional[str]:
+        """None when the Download Account config names it, as for the Statement adapter."""
 
     def fetch(self, window: ExportWindow) -> Fetch: ...
 
     def recognizes(self, file: Path, account: DownloadAccount) -> bool:
         """Whether file belongs to account, decided by its content, not its name."""
+        ...
 
     def parse(self, file: Path, account: DownloadAccount, window: ExportWindow) -> Download: ...
 

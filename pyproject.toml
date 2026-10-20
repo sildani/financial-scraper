@@ -1,0 +1,23 @@
+[tool.ruff]
+target-version = "py312"
+extend-exclude = ["scripts"]
+
+[tool.ruff.lint]
+# E4/E7/E9 is ruff's default slice of E: it leaves out E501 (line length),
+# since the repo has no formatter and long lines aren't a correctness problem.
+select = ["E4", "E7", "E9", "F", "I", "ANN001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+combine-as-imports = true
+
+[tool.ruff.lint.per-file-ignores]
+# Silences the UserWarning pydantic-ai raises on import, so the filter must run first.
+"src/llm.py" = ["E402"]
+# Parameter type hints are required in application code only.
+"tests/**" = ["ANN001"]
+
+[tool.pyright]
+typeCheckingMode = "basic"
+pythonVersion = "3.12"
+exclude = ["scripts", ".venv", ".scratch", "**/__pycache__"]

@@ -1,10 +1,10 @@
 import unittest
 from datetime import date
 
-from src.plaid_transformer import transform_plaid_transactions, summarize_link
-from src.schemas import PlaidAccount, PlaidTransaction, SpendingCategory
-from src.linked_movements import LinkedMovements
 from src.export_window import ExportWindow
+from src.linked_movements import LinkedMovements
+from src.plaid_transformer import summarize_link, transform_plaid_transactions
+from src.schemas import PlaidAccount, PlaidTransaction, SpendingCategory
 
 NO_MOVEMENTS = LinkedMovements(paired=[], unpaired=[])
 WINDOW = ExportWindow(start=date(2026, 9, 17), end=date(2026, 10, 17))

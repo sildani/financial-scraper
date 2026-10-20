@@ -3,7 +3,6 @@ from datetime import date
 
 from src.export_window import export_window, history_warning
 
-
 TODAY = date(2026, 10, 18)
 
 
@@ -45,6 +44,7 @@ class HistoryWarningTest(unittest.TestCase):
 
     def test_window_reaching_further_back_warns_to_re_link(self):
         warning = history_warning(export_window("2026-07-19", None, TODAY), TODAY)
+        assert warning is not None
         self.assertRegex(warning, "2026-07-19 is more than 90 days ago")
         self.assertRegex(warning, "re-link")
 

@@ -6,9 +6,9 @@ from typing import NamedTuple
 from src.adapters.first_gingham import FirstGinghamAdapter
 from src.adapters.statement import StatementAdapter
 from src.download_accounts import DownloadAccount
-from src.downloads import Coverage
+from src.downloads import Adapter, Coverage
 from src.export_window import ExportWindow
-from src.schemas import AccountSummary, ParsedTransaction
+from src.schemas import AccountSummary, ParsedTransaction, SpendingCategory
 
 FIXTURES = Path(__file__).parent / "fixtures" / "downloads"
 WINDOW = ExportWindow(start=date(2026, 9, 18), end=date(2026, 10, 19))
@@ -17,7 +17,7 @@ WINDOW = ExportWindow(start=date(2026, 9, 18), end=date(2026, 10, 19))
 class ContractCase(NamedTuple):
     """One adapter's fixture, with what parsing it over WINDOW must give, known from reading the fixture."""
     name: str
-    adapter: object
+    adapter: Adapter
     file: Path
     account: DownloadAccount
     dates: list[str]  # Every Transaction's date, in order
@@ -36,7 +36,7 @@ def gemini_statement(path, force_reprocess=False) -> AccountSummary:
         period_start="2026-09-12", period_end="2026-10-11", account_kind="deposit", balance=640.10,
         amount_due=35.00, due_date="2026-11-05",
         transactions=[
-            ParsedTransaction(transaction_date=day, description=desc, clean_merchant=desc, amount=amount, category=category)
+            ParsedTransaction(transaction_date=day, description=desc, clean_merchant=desc, amount=amount, category=SpendingCategory(category))
             for day, desc, amount, category in [
                 ("2026-09-14", "PINECONE MARKET #12", 22.40, "Groceries"),
                 ("2026-09-21", "BEAN COUNTER COFFEE", 6.50, "Restaurants & Fast Food"),
@@ -94,7 +94,8 @@ class AdapterContractTest(unittest.TestCase):
             with self.subTest(case.name):
                 money_out_sign = 1 if case.account.kind == "liability" else -1
                 for tx in self.parsed(case).summary.transactions:
-                    money_out = tx.spend() if tx.spend() is not None else -tx.income() if tx.income() is not None else None
+                    spend, income = tx.spend(), tx.income()
+                    money_out = spend if spend is not None else -income if income is not None else None
                     if money_out:
                         self.assertEqual(tx.amount, money_out_sign * money_out, tx.description)
 
