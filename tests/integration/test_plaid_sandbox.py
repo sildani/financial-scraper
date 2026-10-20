@@ -15,7 +15,7 @@ from datetime import date
 import plaid
 from gspread.utils import ValueRenderOption
 
-from main import run_plaid_export
+from main import run_export
 from src.config import BASE_DIR, current_plaid_environment
 from src.export_window import export_window
 from src.plaid_client import get_plaid_client, get_transactions
@@ -150,12 +150,12 @@ class PlaidSandboxExportTest(unittest.TestCase):
             for access_token in cls.tokens.values():
                 wait_until_ready(client, access_token, window)
 
-            cls.full = run_plaid_export(cls.tokens, window, spreadsheet=spreadsheet)
+            cls.full = run_export(cls.tokens, [], window, [], {}, spreadsheet=spreadsheet)
             cls.tabs = list(cls.full.tabs)
             cls.full_sheet = SheetExport(spreadsheet, cls.full.tabs)
 
             force_relink(client, token_by_link["tartan"])
-            cls.partial = run_plaid_export(cls.tokens, window, spreadsheet=spreadsheet)
+            cls.partial = run_export(cls.tokens, [], window, [], {}, spreadsheet=spreadsheet)
             cls.tabs += cls.partial.tabs
             cls.partial_sheet = SheetExport(spreadsheet, cls.partial.tabs)
         except Exception:

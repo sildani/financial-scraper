@@ -1,11 +1,11 @@
-# Plaid Mode Acceptance Test
+# Plaid Acceptance Test
 
-This is the end-to-end acceptance test for Plaid mode. It checks that an Export follows `GLOSSARY.md` and the ADRs in `docs/adr/`. It does not just check that data arrives.
+This is the end-to-end acceptance test for Plaid Accounts in an Export. It checks that an Export follows `GLOSSARY.md` and the ADRs in `docs/adr/`. It does not just check that data arrives.
 
 - **Phase 1** runs in the **Sandbox** Environment against fixture Links with known Transactions, so every check has an exact expected value.
 - **Phase 2** runs in the **Production** Environment against your real Institutions. Don't start it until every Phase 1 check passes.
 
-Unit tests cover individual behaviors. This guide covers the whole pipeline. Run it again after any change to Plaid mode, and before merging Plaid mode work to `main`.
+Unit tests cover individual behaviors. This guide covers the whole pipeline. Run it again after any change to how Plaid Accounts are exported, and before merging that work to `main`.
 
 ## Automated run of Phase 1
 
@@ -48,7 +48,7 @@ An unset `PLAID_ENV`, or any other value (including the retired `development`), 
 
 ## Phase 1: Sandbox
 
-**Objective:** Prove that every Plaid mode rule in the glossary holds against known fixture data.
+**Objective:** Prove that every glossary rule for Plaid Accounts holds against known fixture data.
 
 ### Fixtures
 
@@ -164,7 +164,7 @@ The fixtures live in `scripts/sandbox_fixtures.json`, and `scripts/seed_sandbox.
 
 ## Phase 2: Production
 
-**Objective:** Confirm Plaid mode with your real Institutions, from a checkout of `main` that keeps working while you develop on other branches.
+**Objective:** Confirm Plaid Accounts with your real Institutions, from a checkout of `main` that keeps working while you develop on other branches.
 
 **Prerequisite:** Every Phase 1 check passes on `main`.
 

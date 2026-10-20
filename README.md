@@ -7,11 +7,12 @@ An Agentic AI pipeline built with Python, PydanticAI, and Google Gemini to extra
 - **Strict Typing:** Uses Pydantic schemas to validate dates, amounts, normalized merchants, and spending categories.
 - **Local MD5 Caching:** Avoids redundant API calls by caching extracted JSON outputs based on file MD5 checksums.
 - **Google Sheets Integration:** Automatically outputs data across three structured sheets: *Summary*, *Detailed Spending*, and *Aggregated Spend Analysis*.
-- **Plaid Integration:** Optionally connect directly to your financial institutions to fetch transaction data automatically.
+- **Plaid Integration:** Connect directly to your financial institutions to fetch transaction data automatically.
+- **Downloads:** Accounts Plaid can't reach are read from files you download from the Institution: a Statement PDF, or a vendor's CSV through its adapter. Both go into the same Export.
 
 ## Project Structure
 
-- `main.py`: Main entry point: a Plaid mode Export by default, or Statement mode with `--statements`.
+- `main.py`: Main entry point: an Export of every Account by default, or `--plaid-link` / `--relink`.
 - `src/`: Core application package:
   - `config.py`: Centralized configuration and environment loader.
   - `llm.py`: PydanticAI / Gemini statement extraction agent.
@@ -20,8 +21,12 @@ An Agentic AI pipeline built with Python, PydanticAI, and Google Gemini to extra
   - `utils.py`: Helper utilities (e.g., MD5 hashing for caching).
   - `plaid_client.py`: Client for interacting with the Plaid API.
   - `plaid_transformer.py`: Transforms Plaid data into the application's data format.
+  - `download_accounts.py`: Reads the local Download Account config.
+  - `downloads.py`: The adapter interface, and matching each Download Account to its file.
+  - `adapters/`: One adapter per vendor (`first_gingham.py` is the worked example), plus `statement.py` for any Institution's Statement PDF.
 - `scripts/`: Diagnostic and utility scripts (e.g., testing environment, category inspector, etc.).
-- `input/`: Directory where source PDF statements are placed for processing.
+- `input/`: Directory where Downloads (Statement PDFs, CSVs) are placed for processing.
+- `download_accounts.toml.example`: An example Download Account config.
 - `requirements.txt`: Project dependencies.
 
 ## Setup
@@ -48,24 +53,40 @@ An Agentic AI pipeline built with Python, PydanticAI, and Google Gemini to extra
 
 ## Usage
 
-A run uses exactly one Mode. A bare `python main.py` runs **Plaid mode**; `--statements` runs **Statement mode** from PDFs instead.
+Every run fetches from both **Sources** and writes one Export (ADR-0003): each Account on every Plaid Link, then each **Download Account** from its file in `input/`. Each Account has exactly one Source.
 
-### Statement Mode (PDFs)
+```bash
+python main.py
+```
 
-1. **Place your statement PDFs inside the `input/` directory.**
-2. **Run the batch processor:**
-   ```bash
-   python main.py --statements
-   ```
-   Add `-f` to re-parse PDFs that are already cached.
+The Export window defaults to today and the 30 days before it. Pass `--since` and/or `--until` (inclusive, `YYYY-MM-DD`) for another; it applies to every Account, whatever its Source.
 
-   When Gemini is overloaded (HTTP 503 or 429), each Statement is tried up to 4 times, waiting longer each time (at least 5s, 10s, then 20s). A Statement that still fails makes a Partial Export.
+### Download Accounts
 
-   Checking and savings Statements show money in as positive and money out as negative, just as your bank shows them (ADR-0001). Statements cached before this change don't record their Account kind and fail to load, so re-parse them once with `python main.py --statements -f`.
+Download Accounts are the Accounts Plaid can't reach. They exist only in Production; a Sandbox run ignores them.
 
-### Plaid Mode (default)
+1. **List them** in `download_accounts.toml` (gitignored). Copy `download_accounts.toml.example` to start. Each `[[account]]` has:
+   - `adapter`: the vendor adapter that reads its files, such as `first_gingham`, or `statement` for any Institution's Statement PDF.
+   - `institution`: only for `statement`; a vendor adapter names its own Institution.
+   - `last4`: the Account's last four digits.
+   - `kind`: `liability` (credit card, loan) or `deposit` (checking, savings, anything else).
+   - `balance_only` (optional): not used yet.
+2. **Put each Account's file in `input/`.** Each adapter recognizes its own files by their content, not their names. If several files match one Account, the last by name is used; a file no Account matches is named and left alone.
+3. **Run `python main.py`.** Only Transactions inside the Export window are exported, and pending activity never is.
 
-Instead of manually downloading PDF statements, you can connect directly to your financial institutions using Plaid.
+A Download Account with no matching file, or whose file can't be processed, makes a **Partial Export**: Summary and Analysis start with an `INCOMPLETE: missing <Institution> ••<last4>` row.
+
+#### Statements
+
+The `statement` adapter sends each PDF in `input/` to Gemini and caches the parse by the file's MD5, so a PDF is only sent once. Add `-f` to re-parse PDFs that are already cached. A Statement belongs to the Download Account whose last four digits end Gemini's account name.
+
+When Gemini is overloaded (HTTP 503 or 429), each Statement is tried up to 4 times, waiting longer each time (at least 5s, 10s, then 20s). A Statement that still fails makes a Partial Export.
+
+A Statement's Displayed amounts follow its Download Account's `kind`: checking and savings show money in as positive and money out as negative, just as your bank shows them (ADR-0001). Statements cached before Statement period dates were recorded fail to load; re-parse them once with `python main.py -f`.
+
+### Plaid Accounts
+
+Connect directly to your financial institutions using Plaid.
 
 #### 1. Set up Plaid Credentials in `.env`
 
@@ -88,16 +109,13 @@ Instead of manually downloading PDF statements, you can connect directly to your
 
 #### 3. Fetch Transactions
 
-- Once your accounts are linked, you can fetch today's and the previous 30 days' transactions by running:
-  ```bash
-  python main.py
-  ```
-- To export a different Export window, pass `--since` and/or `--until` (inclusive, `YYYY-MM-DD`). `--until` defaults to today and `--since` to 30 days before `--until`:
+- Once your accounts are linked, `python main.py` exports them with your Download Accounts.
+- To export a different Export window, pass `--since` and/or `--until`:
   ```bash
   python main.py --since 2026-01-01 --until 2026-03-31
   ```
   New Links request 730 days of history. A Link made before that only has about 90 days, and `--relink` doesn't change that. To reach further back, link the Institution again with `--plaid-link`, then delete the old Link's entry from `.plaid_tokens.<PLAID_ENV>.json` so the Institution isn't fetched twice.
-- If a Link fails (for example, its login expired), the run still exports the other Links. That Export is a Partial Export: Summary and Analysis start with an `INCOMPLETE: missing <Institution>` row, and the terminal names the Links that need re-linking.
+- If a Link fails (for example, its login expired), the run still exports the other Links. That Export is a Partial Export: Summary and Analysis start with an `INCOMPLETE: missing <Institution> [<Link ID>]` row, and the terminal names the Links that need re-linking.
 
 #### 4. Re-link a Link
 

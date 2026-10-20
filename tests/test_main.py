@@ -1,10 +1,13 @@
 import contextlib
 import io
 import unittest
+from pathlib import Path
 
-from main import Action, parse_args, run_plaid_export, run_relink, run_statement_export
+from main import Action, parse_args, run_export, run_relink
+from src.download_accounts import DownloadAccount
+from src.downloads import Download, download_summary
 from src.plaid_client import FailedLink, RelinkCheck
-from tests.test_analysis import statement
+from src.schemas import SpendingCategory, Transaction
 from tests.test_plaid_client import FakeResponse, plaid_error
 from tests.test_plaid_transformer import WINDOW, account, link_response
 from tests.test_sheets import FakeSpreadsheet
@@ -19,11 +22,11 @@ def parse_error(argv) -> str:
 
 
 class ActionTest(unittest.TestCase):
-    def test_a_bare_run_is_a_plaid_mode_export(self):
-        self.assertIs(parse_args([]).action, Action.PLAID_EXPORT)
+    def test_a_bare_run_is_an_export(self):
+        self.assertIs(parse_args([]).action, Action.EXPORT)
 
-    def test_statements_flag_is_a_statement_mode_export(self):
-        self.assertIs(parse_args(["--statements"]).action, Action.STATEMENT_EXPORT)
+    def test_statements_flag_no_longer_exists(self):
+        self.assertIn("unrecognized arguments: --statements", parse_error(["--statements"]))
 
     def test_plaid_link_flag_links(self):
         self.assertIs(parse_args(["--plaid-link"]).action, Action.LINK)
@@ -34,64 +37,23 @@ class ActionTest(unittest.TestCase):
 
 class FlagCombinationTest(unittest.TestCase):
     def test_a_run_does_one_thing(self):
-        for pair in (["--statements", "--plaid-link"], ["--statements", "--relink"], ["--plaid-link", "--relink"]):
-            with self.subTest(pair):
-                self.assertIn("not allowed with argument", parse_error(pair))
+        self.assertIn("not allowed with argument", parse_error(["--plaid-link", "--relink"]))
 
-    def test_force_belongs_to_statement_mode_only(self):
-        self.assertTrue(parse_args(["--statements", "-f"]).force)
-        for other_action in ([], ["--plaid-link"], ["--relink"]):
+    def test_force_belongs_to_an_export_only(self):
+        self.assertTrue(parse_args(["-f"]).force)
+        for other_action in (["--plaid-link"], ["--relink"]):
             with self.subTest(other_action):
-                self.assertIn("-f/--force only applies with --statements", parse_error([*other_action, "-f"]))
+                self.assertIn("-f/--force only applies to an Export", parse_error([*other_action, "-f"]))
 
-    def test_export_window_belongs_to_plaid_mode_exports_only(self):
-        self.assertIs(parse_args(["--since", "2026-01-01", "--until", "2026-03-31"]).action, Action.PLAID_EXPORT)
-        for other_action in (["--statements"], ["--plaid-link"], ["--relink"]):
+    def test_export_window_belongs_to_an_export_only(self):
+        self.assertIs(parse_args(["--since", "2026-01-01", "--until", "2026-03-31"]).action, Action.EXPORT)
+        for other_action in (["--plaid-link"], ["--relink"]):
             with self.subTest(other_action):
-                self.assertIn("--since and --until only apply to a Plaid mode Export", parse_error([*other_action, "--since", "2026-01-01"]))
-
-
-def fake_parse(failing=()):
-    """process_statement_pdf, raising for each PDF named in failing as Gemini or the cache might."""
-    def parse(pdf_path, force_reprocess=False):
-        if pdf_path.split("/")[-1] in failing:
-            raise RuntimeError("status_code: 503, UNAVAILABLE")
-        return statement("liability", ("Pinecone Market", 60.00, "Groceries"))
-    return parse
-
-
-class StatementPartialExportTest(unittest.TestCase):
-    def test_a_failed_statement_marks_the_export_incomplete_naming_its_file(self):
-        spreadsheet = FakeSpreadsheet()
-        with contextlib.redirect_stdout(io.StringIO()):
-            export = run_statement_export(
-                ["input/card-a.pdf", "input/card-b.pdf"], parse=fake_parse(failing=["card-b.pdf"]), spreadsheet=spreadsheet
-            )
-        banner = ["INCOMPLETE: missing card-b.pdf"]
-        self.assertEqual(spreadsheet.tabs["Summary"].rows[0], banner)
-        self.assertEqual(spreadsheet.tabs["Analysis"].rows[0], banner)
-        self.assertEqual((len(export.summaries), export.failed), (1, ["card-b.pdf"]))
-
-    def test_the_run_ends_by_naming_failed_files_and_how_to_retry_only_them(self):
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout):
-            run_statement_export(["input/card-a.pdf", "input/card-b.pdf"], parse=fake_parse(failing=["card-b.pdf"]), spreadsheet=FakeSpreadsheet())
-        last_lines = stdout.getvalue().strip().splitlines()[-2:]
-        self.assertEqual(last_lines, [
-            "! Partial Export: missing card-b.pdf",
-            "   Run --statements again without -f to retry only the failed Statements; the rest are cached.",
-        ])
-
-    def test_no_export_is_written_when_every_statement_fails(self):
-        spreadsheet = FakeSpreadsheet()
-        with contextlib.redirect_stdout(io.StringIO()):
-            export = run_statement_export(["input/card-a.pdf"], parse=fake_parse(failing=["card-a.pdf"]), spreadsheet=spreadsheet)
-        self.assertEqual(spreadsheet.tabs, {})
-        self.assertEqual((export.summaries, export.failed, export.tabs), ([], ["card-a.pdf"], []))
+                self.assertIn("--since and --until only apply to an Export", parse_error([*other_action, "--since", "2026-01-01"]))
 
 
 class FakeLinksClient:
-    """Plaid for a Plaid mode Export: access tokens in failing raise that Plaid error code, every other
+    """Plaid for an Export: access tokens in failing raise that Plaid error code, every other
     returns one Account and no Transactions; /item/get names each Link's Institution from institutions."""
     def __init__(self, failing, institutions):
         self.failing, self.institutions = failing, institutions
@@ -114,7 +76,7 @@ class PlaidPartialExportTest(unittest.TestCase):
         tokens = {"a1b2c3-gingham": "access-first", "d4e5f6-gingham": "access-second", "item-platypus": "access-platypus"}
         spreadsheet, stdout = FakeSpreadsheet(), io.StringIO()
         with contextlib.redirect_stdout(stdout):
-            run_plaid_export(tokens, WINDOW, spreadsheet=spreadsheet, client=client)
+            run_export(tokens, [], WINDOW, [], {}, spreadsheet=spreadsheet, client=client)
         lines = stdout.getvalue().splitlines()
         self.assertIn("   ✗ First Gingham Credit Union [a1b2c3] needs re-linking (run --relink)", lines)
         self.assertIn("   ✗ First Gingham Credit Union [d4e5f6] failed with INSTITUTION_DOWN; try again later", lines)
@@ -122,6 +84,86 @@ class PlaidPartialExportTest(unittest.TestCase):
         self.assertIn(f"! Partial Export: {missing}", lines)
         self.assertEqual(spreadsheet.tabs["Summary"].rows[0], [f"INCOMPLETE: {missing}"])
         self.assertEqual(spreadsheet.tabs["Analysis"].rows[0], [f"INCOMPLETE: {missing}"])
+
+
+class FakeAdapter:
+    """A vendor's adapter for First Tartan Bank: a file belongs to an Account when its name holds the Account's
+    last four digits, and parsing gives one 20.00 Groceries purchase, or raises for a file named in failing."""
+    institution = "First Tartan Bank"
+
+    def __init__(self, failing=()):
+        self.failing, self.parsed = failing, []
+
+    def recognizes(self, file, account):
+        return account.last4 in file.name
+
+    def parse(self, file, account, window):
+        self.parsed.append(file.name)
+        if file.name in self.failing:
+            raise ValueError("no header row")
+        purchase = Transaction(
+            transaction_date=window.end.isoformat(), description=f"FROM {file.name}", clean_merchant="Pinecone Market",
+            amount=20.00, category=SpendingCategory.GROCERIES, spend_amount=20.00,
+        )
+        return Download(summary=download_summary(account, None, [purchase], 500.00), coverage=None)
+
+
+def tartan(last4: str) -> DownloadAccount:
+    return DownloadAccount(adapter="fake", institution="First Tartan Bank", last4=last4, kind="liability")
+
+
+def export(accounts, input_files, adapter=None, tokens=None, client=None):
+    """run_export over WINDOW with Links in tokens (none by default) and the fake adapter; returns it, the Sheet and stdout."""
+    spreadsheet, stdout = FakeSpreadsheet(), io.StringIO()
+    with contextlib.redirect_stdout(stdout):
+        result = run_export(
+            tokens or {}, accounts, WINDOW, [Path(f) for f in input_files], {"fake": adapter or FakeAdapter()},
+            spreadsheet=spreadsheet, client=client or FakeLinksClient(failing={}, institutions={"access-platypus": "First Platypus Bank"}),
+        )
+    return result, spreadsheet, stdout.getvalue().splitlines()
+
+
+class UnifiedExportTest(unittest.TestCase):
+    def test_one_export_holds_plaid_accounts_and_download_accounts(self):
+        result, spreadsheet, _ = export([tartan("2222")], ["input/tartan-2222.csv"], tokens={"item-platypus": "access-platypus"})
+        summary_accounts = [row[:2] for row in spreadsheet.tabs["Summary"].rows[1:]]
+        self.assertEqual(summary_accounts, [["First Platypus Bank", "Credit card (9496)"], ["First Tartan Bank", "••2222"]])
+        self.assertIn(["First Tartan Bank", "••2222"], [row[:2] for row in spreadsheet.tabs["Details"].rows])
+        self.assertEqual(result.missing, [])
+
+    def test_a_download_account_with_no_file_makes_a_partial_export_naming_it(self):
+        result, spreadsheet, lines = export([tartan("2222"), tartan("3333")], ["input/tartan-2222.csv"])
+        missing = "missing First Tartan Bank ••3333"
+        self.assertEqual(spreadsheet.tabs["Summary"].rows[0], [f"INCOMPLETE: {missing}"])
+        self.assertEqual(spreadsheet.tabs["Analysis"].rows[0], [f"INCOMPLETE: {missing}"])
+        self.assertIn("   ✗ First Tartan Bank ••3333: no matching file in input/", lines)
+        self.assertIn(f"! Partial Export: {missing}", lines)
+        self.assertEqual(result.missing, ["First Tartan Bank ••3333"])
+
+    def test_a_download_that_cannot_be_parsed_makes_a_partial_export_naming_its_account(self):
+        adapter = FakeAdapter(failing=["tartan-3333.csv"])
+        result, _, lines = export([tartan("2222"), tartan("3333")], ["input/tartan-2222.csv", "input/tartan-3333.csv"], adapter=adapter)
+        self.assertIn("   ✗ First Tartan Bank ••3333: couldn't process tartan-3333.csv: no header row", lines)
+        self.assertEqual(result.missing, ["First Tartan Bank ••3333"])
+
+    def test_a_partial_export_names_failed_links_before_missing_download_accounts(self):
+        client = FakeLinksClient(failing={"access-gingham": "ITEM_LOGIN_REQUIRED"}, institutions={"access-gingham": "First Gingham Credit Union"})
+        result, _, _ = export([tartan("3333")], [], tokens={"a1b2c3-gingham": "access-gingham"}, client=client)
+        self.assertEqual(result.missing, ["First Gingham Credit Union [a1b2c3]", "First Tartan Bank ••3333"])
+
+    def test_with_several_matching_files_the_last_by_name_is_used_and_the_others_named(self):
+        adapter = FakeAdapter()
+        _, _, lines = export([tartan("2222")], ["input/tartan-2222-09.csv", "input/tartan-2222-10.csv"], adapter=adapter)
+        self.assertEqual(adapter.parsed, ["tartan-2222-10.csv"])
+        self.assertIn("   ! First Tartan Bank ••2222: also matched tartan-2222-09.csv, which is not used", lines)
+
+    def test_a_file_no_download_account_matches_is_named(self):
+        _, _, lines = export([tartan("2222")], ["input/tartan-2222.csv", "input/notes.txt"])
+        self.assertIn("   ! Not used: notes.txt matches no Download Account", lines)
+
+    def test_no_export_is_written_when_nothing_could_be_fetched(self):
+        result, spreadsheet, _ = export([tartan("3333")], [])
+        self.assertEqual((spreadsheet.tabs, result.tabs, result.summaries), ({}, [], []))
 
 
 GINGHAM = FailedLink(item_id="item-gingham", institution="First Gingham Credit Union", error_code="ITEM_LOGIN_REQUIRED")

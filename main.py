@@ -1,6 +1,4 @@
-import os
 import sys
-import glob
 import argparse
 from datetime import date
 from enum import Enum
@@ -10,8 +8,11 @@ from typing import List
 import plaid
 from pydantic import BaseModel
 
-from src.config import INPUT_DIR, current_plaid_environment
-from src.llm import process_statement_pdf
+from pathlib import Path
+from src.config import DOWNLOAD_ACCOUNTS_FILE, INPUT_DIR, current_plaid_environment
+from src.adapters import adapters as all_adapters
+from src.download_accounts import DownloadAccount, load_download_accounts
+from src.downloads import fetch_downloads
 from src.sheets import export_to_sheet
 from src.plaid_client import (
     create_link_token, exchange_public_token, fetch_links, load_tokens, get_public_token_from_link_session,
@@ -47,44 +48,53 @@ def run_hosted_link(hosted_link_url, poll):
     print(f"\n✗ Plaid Link flow timed out after {int(TIMEOUT_S / 60)} minutes.")
     return None
 
-class PlaidExport(BaseModel):
+class Export(BaseModel):
     fetched: FetchedLinks
     movements: LinkedMovements | None = None  # None when no Link could be fetched
     summaries: List[AccountSummary] = []
+    missing: List[str] = []  # Each failed Link, then each missing Download Account, as output names them
     tabs: List[str] = []  # Empty when no Export was written
 
-def run_plaid_export(tokens: dict, window: ExportWindow, spreadsheet=None, client=None) -> PlaidExport:
-    """A Plaid mode Export of every Link in tokens over window, written to the Environment's Sheet."""
-    fetched = fetch_links(tokens, window.start, window.end, client=client)
+def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: ExportWindow, input_files: List[Path], adapters: dict, spreadsheet=None, client=None) -> Export:
+    """
+    One Export over window of every Account on every Link in tokens, then every Download Account
+    from its file among input_files, written to the Environment's Sheet.
+    """
+    # With no Links there's nothing to ask Plaid, and no Plaid client is needed
+    fetched = fetch_links(tokens, window.start, window.end, client=client) if tokens else FetchedLinks(responses=[], failed=[])
     responses = fetched.responses
     for link in fetched.failed:
         reason = "needs re-linking (run --relink)" if link.needs_relink else f"failed with {link.error_code}; try again later"
         print(f"   ✗ {link.label} {reason}")
-    if not responses:
-        return PlaidExport(fetched=fetched)
 
-    # Card Payments and Internal Transfers cross Links, so pair over every Link at once
-    movements = pair_linked_movements(responses)
-    print(f"\nLinked Movements: {len(movements.paired)} paired, {len(movements.unpaired)} unpaired")
-    for side in movements.unpaired:
-        print(f"   ! Unpaired: {side.institution} ({side.account_name}) {side.date} {side.description} {side.amount:,.2f}")
+    summaries, movements = [], None
+    if responses:
+        # Card Payments and Internal Transfers cross Links, so pair over every Link at once
+        movements = pair_linked_movements(responses)
+        print(f"\nLinked Movements: {len(movements.paired)} paired, {len(movements.unpaired)} unpaired")
+        for side in movements.unpaired:
+            print(f"   ! Unpaired: {side.institution} ({side.account_name}) {side.date} {side.description} {side.amount:,.2f}")
 
-    # Spend depends on Linked Movements, so summarize only once they're paired
-    summaries = []
-    for response in responses:
-        for summary in summarize_link(response, window, movements):
-            summaries.append(summary)
-            print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
+        # Spend depends on Linked Movements, so summarize only once they're paired
+        for response in responses:
+            for summary in summarize_link(response, window, movements):
+                summaries.append(summary)
+                print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
 
+    if download_accounts:
+        print(f"\nReading Downloads from {INPUT_DIR.name}/...")
+    downloads = fetch_downloads(download_accounts, input_files, window, adapters)
+    summaries += [download.summary for download in downloads.downloads]
+
+    missing = [link.label for link in fetched.failed] + [account.label for account in downloads.missing]
     tabs = []
     if summaries:
         print("\nExporting aggregated data to Google Sheets...")
-        missing = [link.label for link in fetched.failed]
         tabs = export_to_sheet(summaries, movements, missing=missing, spreadsheet=spreadsheet)
         if missing:
             print(f"\n! Partial Export: missing {', '.join(missing)}")
         print("\nBatch process complete!")
-    return PlaidExport(fetched=fetched, movements=movements, summaries=summaries, tabs=tabs)
+    return Export(fetched=fetched, movements=movements, summaries=summaries, missing=missing, tabs=tabs)
 
 def hosted_relink_session(access_token: str) -> bool:
     """Runs one Link's update mode session in hosted Link; False if it timed out."""
@@ -149,53 +159,22 @@ def print_unchecked(links: List[FailedLink]):
     for link in links:
         print(f"   ✗ {link.label} couldn't be checked ({link.error_code})")
 
-class StatementExport(BaseModel):
-    summaries: List[AccountSummary] = []
-    failed: List[str] = []  # PDF file names of the Statements that couldn't be processed
-    tabs: List[str] = []  # Empty when no Export was written
-
-def run_statement_export(pdf_paths: List[str], force: bool = False, parse=process_statement_pdf, spreadsheet=None) -> StatementExport:
-    """A Statement mode Export of the Statement PDFs at pdf_paths, written to the Environment's Sheet."""
-    summaries, failed = [], []
-    for index, pdf_path in enumerate(pdf_paths, start=1):
-        filename = os.path.basename(pdf_path)
-        print(f"[{index}/{len(pdf_paths)}] Processing: {filename}")
-
-        try:
-            summary = parse(pdf_path, force_reprocess=force)
-            summaries.append(summary)
-            print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
-        except Exception as e:
-            failed.append(filename)
-            print(f"   ✗ Failed to process {filename}: {e}")
-    if not summaries:
-        return StatementExport(failed=failed)
-
-    print("\nExporting aggregated data to Google Sheets...")
-    tabs = export_to_sheet(summaries, missing=failed, spreadsheet=spreadsheet)
-    print("\nBatch process complete!")
-    if failed:
-        print(f"\n! Partial Export: missing {', '.join(failed)}")
-        print("   Run --statements again without -f to retry only the failed Statements; the rest are cached.")
-    return StatementExport(summaries=summaries, failed=failed, tabs=tabs)
-
 class Action(str, Enum):
     """What a run does."""
-    PLAID_EXPORT = "plaid-export"  # The default: a Plaid mode Export
-    STATEMENT_EXPORT = "statement-export"
+    EXPORT = "export"  # The default: an Export of every Plaid Account and Download Account
     LINK = "link"
     RELINK = "relink"
 
 def parse_args(argv=None) -> argparse.Namespace:
     """Parses the command line into args whose action is the Action the run does."""
-    parser = argparse.ArgumentParser(description="Financial Statement Scraper & Analyzer")
-    # Without one of these, the run is a Plaid mode Export
-    action = parser.add_mutually_exclusive_group()
-    action.add_argument(
-        "--statements",
-        action="store_true",
-        help=f"Statement mode: export from the Statement PDFs in {INPUT_DIR}/ instead of Plaid."
+    parser = argparse.ArgumentParser(
+        description=(
+            "Exports every Account to Google Sheets in one run: each Account on every Plaid Link, then each "
+            f"Download Account in {DOWNLOAD_ACCOUNTS_FILE.name} from its file in {INPUT_DIR.name}/ (Production only)."
+        )
     )
+    # Without one of these, the run is an Export
+    action = parser.add_mutually_exclusive_group()
     action.add_argument(
         "--plaid-link",
         action="store_true",
@@ -209,35 +188,32 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument(
         "-f", "--force",
         action="store_true",
-        help="Force re-processing of PDFs via Gemini API, bypassing local cache"
+        help="Re-parse Statement PDFs with Gemini, bypassing the local cache."
     )
     parser.add_argument(
         "--since",
         metavar="YYYY-MM-DD",
-        help="First day of the Export window (default: 30 days before --until). Plaid mode only."
+        help="First day of the Export window (default: 30 days before --until)."
     )
     parser.add_argument(
         "--until",
         metavar="YYYY-MM-DD",
-        help="Last day of the Export window (default: today). Plaid mode only."
+        help="Last day of the Export window (default: today)."
     )
     args = parser.parse_args(argv)
 
-    if args.statements:
-        args.action = Action.STATEMENT_EXPORT
-    elif args.plaid_link:
+    if args.plaid_link:
         args.action = Action.LINK
     elif args.relink:
         args.action = Action.RELINK
     else:
-        args.action = Action.PLAID_EXPORT
+        args.action = Action.EXPORT
 
-    # A Statement's own period defines what it covers, so the Export window is Plaid mode only
-    if (args.since or args.until) and args.action != Action.PLAID_EXPORT:
-        parser.error("--since and --until only apply to a Plaid mode Export")
-    # The cache it bypasses only holds parsed Statements
-    if args.force and args.action != Action.STATEMENT_EXPORT:
-        parser.error("-f/--force only applies with --statements")
+    if (args.since or args.until) and args.action != Action.EXPORT:
+        parser.error("--since and --until only apply to an Export")
+    # The cache it bypasses only holds parsed Statements, which only an Export reads
+    if args.force and args.action != Action.EXPORT:
+        parser.error("-f/--force only applies to an Export")
     return args
 
 def main():
@@ -276,40 +252,33 @@ def main():
             sys.exit("Error: some Links still need re-linking")
         return
 
-    if args.action == Action.PLAID_EXPORT:
+    # An Export: every other action has returned
+    adapters = all_adapters(force=args.force)
+    try:
+        download_accounts = load_download_accounts(DOWNLOAD_ACCOUNTS_FILE, environment.name, adapters).accounts
+    except ValueError as e:
+        sys.exit(f"Error: {e}")
+    tokens = load_tokens()
+    if not tokens and not download_accounts:
+        sys.exit(
+            f"Error: no Links in the {environment.name} Environment and no Download Accounts. Run --plaid-link "
+            f"to add a Link, or, in Production, list Download Accounts in {DOWNLOAD_ACCOUNTS_FILE.name}."
+        )
+
+    try:
+        window = export_window(args.since, args.until, date.today())
+    except ValueError as e:
+        sys.exit(f"Error: {e}")
+    print(f"Export window: {window.start} to {window.end}")
+    warning = history_warning(window, date.today())
+    if tokens and warning:
+        print(f"   ! {warning}")
+
+    if tokens:
         print("\nFetching transactions from Plaid...")
-        tokens = load_tokens()
-        if not tokens:
-            sys.exit(
-                f"Error: no Links in the {environment.name} Environment. Run --plaid-link to add one, "
-                f"or --statements to export from the Statement PDFs in {INPUT_DIR}/."
-            )
-
-        try:
-            window = export_window(args.since, args.until, date.today())
-        except ValueError as e:
-            sys.exit(f"Error: {e}")
-        print(f"Export window: {window.start} to {window.end}")
-        warning = history_warning(window, date.today())
-        if warning:
-            print(f"   ! {warning}")
-
-        if not run_plaid_export(tokens, window).fetched.responses:
-            sys.exit("Error: no Link could be fetched, so no Export was written")
-        return
-
-    # Statement mode: every other action has returned
-    pdf_files = glob.glob(os.path.join(INPUT_DIR, "*.pdf")) + glob.glob(os.path.join(INPUT_DIR, "*.PDF"))
-    pdf_files = sorted(list(set(pdf_files)))
-
-    if not pdf_files:
-        print(f"No PDF statements found in '{INPUT_DIR}/'. Add your files and try again.")
-        return
-
-    print(f"Found {len(pdf_files)} PDF statement(s) in '{INPUT_DIR}/'\n")
-
-    if not run_statement_export(pdf_files, args.force).summaries:
-        sys.exit("Error: no Statement could be processed, so no Export was written")
+    input_files = [path for path in INPUT_DIR.glob("*") if path.is_file() and not path.name.startswith(".")]
+    if not run_export(tokens, download_accounts, window, input_files, adapters).summaries:
+        sys.exit("Error: no Link or Download Account could be fetched, so no Export was written")
 
 if __name__ == "__main__":
     main()

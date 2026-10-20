@@ -3,7 +3,7 @@ from src.schemas import AccountSummary, Transaction
 
 def statement_summary(parsed: AccountSummary) -> AccountSummary:
     """
-    A Statement as Statement mode exports it, from Gemini's parse. Gemini signs every amount positive
+    A Statement as the Statement adapter exports it, from Gemini's parse. Gemini signs every amount positive
     for money out, which decides Spend and Income; the Displayed amount follows Account kind (ADR-0001).
     """
     sign = -1 if parsed.account_kind == "deposit" else 1

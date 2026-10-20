@@ -13,6 +13,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent.parent
 INPUT_DIR = BASE_DIR / "input"
 CACHE_DIR = BASE_DIR / ".cache"
+DOWNLOAD_ACCOUNTS_FILE = BASE_DIR / "download_accounts.toml"  # Local and gitignored: which Accounts you hold
 
 # Create cache directory if it doesn't exist
 CACHE_DIR.mkdir(exist_ok=True)
