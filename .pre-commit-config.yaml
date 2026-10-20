@@ -1,23 +1,24 @@
-# Runs the same checks as CI, with the tools pinned in requirements-dev.txt; run with the venv active.
+# The checks, listed once: CI runs this file too. The tools are the ones pinned in requirements-dev.txt and
+# installed in the repo's .venv, so a commit needs no active venv.
 # Every commit runs them all, since a config change alone can break a check.
 repos:
   - repo: local
     hooks:
       - id: ruff
         name: ruff
-        entry: ruff check
+        entry: .venv/bin/ruff check
         language: system
         always_run: true
         pass_filenames: false
       - id: pyright
         name: pyright
-        entry: pyright
+        entry: .venv/bin/pyright
         language: system
         always_run: true
         pass_filenames: false
       - id: unittest
         name: unit tests
-        entry: python -m unittest discover -s tests -t .
+        entry: .venv/bin/python -m unittest discover -s tests -t .
         language: system
         always_run: true
         pass_filenames: false

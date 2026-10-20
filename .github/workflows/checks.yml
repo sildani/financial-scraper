@@ -21,8 +21,7 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
-      - run: pip install -r requirements.txt -r requirements-dev.txt
-      - run: ruff check
-      - run: pyright
+      # The same .venv the pre-commit hooks run from
+      - run: python -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
       # No credentials here: the integration tests skip themselves
-      - run: python -m unittest discover -s tests -t .
+      - run: .venv/bin/pre-commit run --all-files --show-diff-on-failure

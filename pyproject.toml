@@ -21,3 +21,6 @@ combine-as-imports = true
 typeCheckingMode = "basic"
 pythonVersion = "3.12"
 exclude = ["scripts", ".venv", ".scratch", "**/__pycache__"]
+# The repo's .venv, which the pre-commit hooks and CI both use, so pyright resolves imports without an active venv
+venvPath = "."
+venv = ".venv"
