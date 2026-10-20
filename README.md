@@ -133,7 +133,7 @@ Connect directly to your financial institutions using Plaid.
 
 ## Development
 
-The same checks run in a pre-commit hook and in CI on every push and pull request: `ruff check`, `pyright` (basic mode) and the unit tests. Their config is in `pyproject.toml`, and the tool versions are pinned in `requirements-dev.txt`.
+The same checks run in a pre-commit hook and in CI on every pull request and every push to `main`: `ruff check`, `pyright` (basic mode) and the unit tests. Their config is in `pyproject.toml`, and the tool versions are pinned in `requirements-dev.txt`.
 
 ```bash
 pip install -r requirements-dev.txt
