@@ -4,6 +4,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 import json
 import random
 import time
+from functools import cache
 from pydantic_ai import Agent, BinaryContent
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.google import GoogleModel
@@ -12,21 +13,22 @@ from src.schemas import AccountSummary
 from src.config import CACHE_DIR
 from src.utils import compute_md5
 
-model = GoogleModel('gemini-3.6-flash')
-
-statement_agent = Agent(
-    model,
-    output_type=AccountSummary,
-    system_prompt=(
-        "You are an expert financial auditor and data extraction agent. "
-        "Analyze the provided credit card or bank statement document thoroughly. "
-        "Extract overall statement metadata (account kind, balance, amount due and due date for credit cards or loans, interest charged) "
-        "and every single individual transaction. "
-        "For each transaction, provide the raw description, clean the merchant name, convert the amount "
-        "(positive for money out, on every kind of account), "
-        "and assign the most accurate category from the permitted enum list."
+@cache
+def statement_agent() -> Agent:
+    """Gemini's Statement parser, built on first use so importing this module needs no API key."""
+    return Agent(
+        GoogleModel('gemini-3.6-flash'),
+        output_type=AccountSummary,
+        system_prompt=(
+            "You are an expert financial auditor and data extraction agent. "
+            "Analyze the provided credit card or bank statement document thoroughly. "
+            "Extract overall statement metadata (account kind, balance, amount due and due date for credit cards or loans, interest charged) "
+            "and every single individual transaction. "
+            "For each transaction, provide the raw description, clean the merchant name, convert the amount "
+            "(positive for money out, on every kind of account), "
+            "and assign the most accurate category from the permitted enum list."
+        )
     )
-)
 
 GEMINI_ATTEMPTS = 4
 GEMINI_RETRY_BASE_DELAY_S = 5
@@ -66,7 +68,7 @@ def process_statement_pdf(pdf_path: str, force_reprocess: bool = False) -> Accou
         media_type='application/pdf'
     )
 
-    result = call_gemini_with_retries(lambda: statement_agent.run_sync([
+    result = call_gemini_with_retries(lambda: statement_agent().run_sync([
         'Please parse this credit card or bank statement PDF and extract the structured data.',
         pdf_input
     ]))

@@ -1,10 +1,19 @@
 import contextlib
 import io
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
-from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.exceptions import ModelHTTPError, UserError
 
-from src.llm import call_gemini_with_retries
+from src import llm
+from src.llm import call_gemini_with_retries, process_statement_pdf
+from src.schemas import AccountSummary
+from src.utils import compute_md5
 
 
 def flaky(*outcomes):
@@ -55,6 +64,50 @@ class GeminiRetryTest(unittest.TestCase):
         self.assertIs(error, errors[-1])
         self.assertEqual((call.count, len(delays)), (4, 3))
 
+
+GEMINI_KEY_VARIABLES = ("GOOGLE_API_KEY", "GEMINI_API_KEY")
+
+
+def environ_without_gemini_key():
+    return {name: value for name, value in os.environ.items() if name not in GEMINI_KEY_VARIABLES}
+
+
+class WithoutGeminiKeyTest(unittest.TestCase):
+    def test_the_gemini_module_and_statement_adapter_import_without_a_key(self):
+        # load_dotenv() is stubbed out so a .env here or in a parent directory can't supply a key.
+        imported = subprocess.run(
+            [sys.executable, "-B", "-c",
+             "import dotenv; dotenv.load_dotenv = lambda *args, **kwargs: False; import src.llm, src.adapters.statement"],
+            env=environ_without_gemini_key(), capture_output=True, text=True,
+        )
+        self.assertEqual(imported.returncode, 0, imported.stderr)
+
+    def setUp(self):
+        llm.statement_agent.cache_clear()
+        self.addCleanup(llm.statement_agent.cache_clear)
+        self.enterContext(mock.patch.dict(os.environ, environ_without_gemini_key(), clear=True))
+        self.cache_dir = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.enterContext(mock.patch.object(llm, "CACHE_DIR", self.cache_dir))
+        self.pdf = self.cache_dir / "statement.pdf"
+        self.pdf.write_bytes(b"%PDF-1.4 a Statement")
+
+    def parsed(self):
+        """process_statement_pdf(self.pdf), without printing."""
+        with contextlib.redirect_stdout(io.StringIO()):
+            return process_statement_pdf(str(self.pdf))
+
+    def test_a_cached_statement_is_parsed_without_a_key(self):
+        cached = AccountSummary(
+            institution="Bank", account_name="Checking - 0000", period="Aug 01, 2026 - Aug 31, 2026",
+            account_kind="deposit", balance=100.0, transactions=[],
+        )
+        (self.cache_dir / f"{compute_md5(self.pdf)}.json").write_text(cached.model_dump_json())
+        self.assertEqual(self.parsed(), cached)
+
+    def test_an_uncached_statement_without_a_key_fails_asking_for_one(self):
+        with self.assertRaisesRegex(UserError, "GOOGLE_API_KEY"):
+            self.parsed()
+        self.assertEqual([file.name for file in self.cache_dir.iterdir()], ["statement.pdf"])
 
 if __name__ == "__main__":
     unittest.main()
