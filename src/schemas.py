@@ -3,6 +3,7 @@ from enum import Enum
 from typing import List, Literal, NamedTuple, Optional
 
 from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
 
 
 class SpendingCategory(str, Enum):
@@ -87,6 +88,8 @@ class AccountSummary(BaseModel):
     due_date: Optional[str] = Field(default=None, description="Payment due date in YYYY-MM-DD format, only for a credit card or loan statement; null for checking or savings")
     interest_charged: Optional[float] = Field(default=0.0, description="Total interest or fees charged, if applicable")
     transactions: List[ParsedTransaction] = Field(description="List of all transactions found in the statement")
+    # Set by the Export, not read from a Statement, so it stays out of Gemini's output schema
+    coverage: SkipJsonSchema[Optional[str]] = None  # The Account's Coverage, e.g. '2026-09-17 to 2026-10-10'; None when it has none
 # --- Plaid Models ---
 
 class PlaidAccountBalances(BaseModel):
@@ -131,6 +134,10 @@ class PlaidPersonalFinanceCategory(BaseModel):
     primary: str
     detailed: str
 
+
+def account_key(institution: str, last4: str) -> tuple[str, str]:
+    """An Account as the two Sources are matched on (ADR-0003): its Institution, ignoring case, and last four digits."""
+    return institution.casefold(), last4
 
 def link_institution(item: dict) -> str:
     """A Link's Institution name from Plaid's item, falling back to the Institution's ID, then the Link's item ID."""

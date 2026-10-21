@@ -32,16 +32,24 @@ def open_export_spreadsheet() -> Spreadsheet:
     return get_gspread_client().open_by_key(current_plaid_environment().spreadsheet_id)
 
 
-def export_to_sheet(summaries: list[AccountSummary], movements: LinkedMovements | None = None, missing: Sequence[str] = (), spreadsheet: Spreadsheet | None = None, sleep: Callable[[float], None] = time.sleep):
+def partial_export_names(missing: Sequence[str], short: Sequence[str]) -> str:
+    """What a Partial Export names: what is missing, then each Download Account whose Coverage stops short; empty if neither."""
+    # A short Account's file was exported, so it isn't listed as missing
+    return "; ".join(([f"missing {', '.join(missing)}"] if missing else []) + list(short))
+
+
+def export_to_sheet(summaries: list[AccountSummary], movements: LinkedMovements | None = None, missing: Sequence[str] = (), short: Sequence[str] = (), spreadsheet: Spreadsheet | None = None, sleep: Callable[[float], None] = time.sleep):
     """Exports structured data to timestamped tabs:
     - Summary_YYYYMMDDHHMMSS
     - Details_YYYYMMDDHHMMSS
     - Analysis_YYYYMMDDHHMMSS
     - LinkedMovements_YYYYMMDDHHMMSS, only when movements are given (some Link was fetched)
-    A Partial Export names what is missing (each Link, then each Download Account) in a banner atop Summary and Analysis.
+    A Partial Export names what is missing (each Link, then each Download Account), then each Download Account whose
+    Coverage stops short, in a banner atop Summary and Analysis.
     Returns the names of the tabs it wrote.
     """
-    banner = [[f"INCOMPLETE: missing {', '.join(missing)}"]] if missing else []
+    names = partial_export_names(missing, short)
+    banner = [[f"INCOMPLETE: {names}"]] if names else []
     tabs = {
         "Summary": Tab(summary_rows(summaries, banner), size=(100, 10)),
         "Details": Tab(details_rows(summaries), size=(2000, 10)),
@@ -86,8 +94,8 @@ def write_tabs(spreadsheet: Spreadsheet, tabs: dict[str, Tab]) -> dict[str, str]
 def summary_rows(summaries: list[AccountSummary], banner: list[list]) -> list[list]:
     return [
         *banner,
-        ["Institution", "Account Name", "Period", "Balance", "Amount Due", "Due Date", "Interest Charged", "Transaction Count"],
-        *([s.institution, s.account_name, s.period, s.balance, s.amount_due, s.due_date, s.interest_charged, len(s.transactions)] for s in summaries),
+        ["Institution", "Account Name", "Period", "Coverage", "Balance", "Amount Due", "Due Date", "Interest Charged", "Transaction Count"],
+        *([s.institution, s.account_name, s.period, s.coverage or "", s.balance, s.amount_due, s.due_date, s.interest_charged, len(s.transactions)] for s in summaries),
     ]
 
 

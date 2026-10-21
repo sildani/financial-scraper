@@ -40,9 +40,9 @@ from src.plaid_client import (
     links_needing_relink,
     load_tokens,
 )
-from src.plaid_transformer import summarize_link
+from src.plaid_transformer import accounts_on_links, summarize_link
 from src.schemas import AccountSummary, link_label
-from src.sheets import Spreadsheet, export_to_sheet
+from src.sheets import Spreadsheet, export_to_sheet, partial_export_names
 
 
 def run_hosted_link[T](hosted_link_url: str, poll: Callable[[], T | None]):
@@ -74,6 +74,7 @@ class Export(BaseModel):
     movements: LinkedMovements | None = None  # None when no Link could be fetched
     summaries: List[AccountSummary] = []
     missing: List[str] = []  # Each failed Link, then each missing Download Account, as output names them
+    short: List[str] = []  # Each Download Account whose Coverage stops short, as output names it
     tabs: List[str] = []  # Empty when no Export was written
 
 def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: ExportWindow, input_files: List[Path], adapters: dict[str, Adapter] | None = None, spreadsheet: Spreadsheet | None = None, client: LinksClient | None = None, assist: Assist | None = None) -> Export:
@@ -106,18 +107,18 @@ def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: E
 
     if download_accounts:
         print(f"\nFetching Downloads (a matching file in {INPUT_DIR.name}/ is used first)...")
-    downloads = fetch_downloads(download_accounts, input_files, window, adapters or all_adapters(), assist=assist)
+    downloads = fetch_downloads(download_accounts, input_files, window, adapters or all_adapters(), assist=assist, on_links=accounts_on_links(responses))
     summaries += [download.summary for download in downloads.downloads]
 
     missing = [link.label for link in fetched.failed] + [account.label for account in downloads.missing]
     tabs = []
     if summaries:
         print("\nExporting aggregated data to Google Sheets...")
-        tabs = export_to_sheet(summaries, movements, missing=missing, spreadsheet=spreadsheet)
-        if missing:
-            print(f"\n! Partial Export: missing {', '.join(missing)}")
+        tabs = export_to_sheet(summaries, movements, missing=missing, short=downloads.short, spreadsheet=spreadsheet)
+        if names := partial_export_names(missing, downloads.short):
+            print(f"\n! Partial Export: {names}")
         print("\nBatch process complete!")
-    return Export(fetched=fetched, movements=movements, summaries=summaries, missing=missing, tabs=tabs)
+    return Export(fetched=fetched, movements=movements, summaries=summaries, missing=missing, short=downloads.short, tabs=tabs)
 
 def hosted_relink_session(access_token: str) -> bool:
     """Runs one Link's update mode session in hosted Link; False if it timed out."""

@@ -3,10 +3,12 @@ import io
 import os
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 from main import Action, parse_args, run_export, run_relink
 from src.assisted_downloads import Assist, Fetch
+from src.download_accounts import DownloadAccount
 from src.downloads import Coverage, download
 from src.plaid_client import FailedLink, RelinkCheck
 from src.schemas import SpendingCategory, Transaction
@@ -93,14 +95,15 @@ class PlaidPartialExportTest(unittest.TestCase):
 
 class FakeAdapter:
     """A vendor's adapter for First Tartan Bank: a file belongs to an Account when its name holds the Account's
-    last four digits, and parsing gives one 20.00 Groceries purchase, or raises for a file named in failing."""
+    last four digits, and parsing gives one 20.00 Groceries purchase, or raises for a file named in failing.
+    A file spans the whole Export window unless spans gives its (start, end) by name, and its page is url."""
     institution = "First Tartan Bank"
 
-    def __init__(self, failing=()):
-        self.failing, self.parsed = failing, []
+    def __init__(self, failing=(), spans=None, url=None):
+        self.failing, self.spans, self.url, self.parsed = failing, spans or {}, url, []
 
     def fetch(self, window):
-        return Fetch(url=None, instructions="Download it")
+        return Fetch(url=self.url, instructions="Download it")
 
     def recognizes(self, file, account):
         return account.last4 in file.name
@@ -113,7 +116,8 @@ class FakeAdapter:
             transaction_date=window.end.isoformat(), description=f"FROM {file.name}", clean_merchant="Pinecone Market",
             amount=20.00, category=SpendingCategory.GROCERIES, spend_amount=20.00,
         )
-        return download(account, Coverage(start=window.start, end=window.end), [purchase], window, 500.00)
+        start, end = self.spans.get(file.name, (window.start, window.end))
+        return download(account, Coverage(start=start, end=end), [purchase], window, 500.00)
 
 
 def export(accounts, input_files, adapter=None, tokens=None, client=None, assist=None):
@@ -191,6 +195,89 @@ class UnifiedExportTest(unittest.TestCase):
     def test_no_export_is_written_when_nothing_could_be_fetched(self):
         result, spreadsheet, _ = export([tartan("3333")], [])
         self.assertEqual((spreadsheet.tabs, result.tabs, result.summaries), ({}, [], []))
+
+
+class CoverageTest(unittest.TestCase):
+    def test_summary_shows_each_download_accounts_coverage_and_the_window_for_plaid_accounts(self):
+        adapter = FakeAdapter(spans={"tartan-2222.csv": (date(2026, 9, 1), date(2026, 10, 30))})
+        _, spreadsheet, _ = export([tartan("2222")], ["input/tartan-2222.csv"], adapter=adapter, tokens={"item-platypus": "access-platypus"})
+        header, *rows = spreadsheet.tabs["Summary"].rows
+        self.assertEqual(header[:4], ["Institution", "Account Name", "Period", "Coverage"])
+        self.assertEqual([row[:4] for row in rows], [
+            ["First Platypus Bank", "Credit card (9496)", "2026-09-17 to 2026-10-17", "2026-09-17 to 2026-10-17"],
+            ["First Tartan Bank", "••2222", "2026-09-17 to 2026-10-17", "2026-09-17 to 2026-10-17"],
+        ])
+
+    def test_coverage_that_stops_short_of_the_window_makes_a_partial_export_naming_the_date_it_reaches(self):
+        adapter = FakeAdapter(spans={"tartan-2222.csv": (date(2026, 9, 1), date(2026, 10, 10))})
+        result, spreadsheet, lines = export([tartan("2222")], ["input/tartan-2222.csv"], adapter=adapter)
+        # Its file was exported, so it isn't named as missing
+        short = "First Tartan Bank ••2222 covered to 2026-10-10"
+        self.assertEqual((result.missing, result.short), ([], [short]))
+        self.assertEqual(spreadsheet.tabs["Summary"].rows[0], [f"INCOMPLETE: {short}"])
+        self.assertEqual(spreadsheet.tabs["Analysis"].rows[0], [f"INCOMPLETE: {short}"])
+        self.assertEqual(spreadsheet.tabs["Summary"].rows[2][3], "2026-09-17 to 2026-10-10")
+        self.assertIn("   ! First Tartan Bank ••2222: covered to 2026-10-10, short of the Export window", lines)
+        self.assertIn(f"! Partial Export: {short}", lines)
+
+    def test_coverage_that_starts_late_is_not_short(self):
+        adapter = FakeAdapter(spans={"tartan-2222.csv": (date(2026, 10, 1), date(2026, 10, 17))})
+        result, _, _ = export([tartan("2222")], ["input/tartan-2222.csv"], adapter=adapter)
+        self.assertEqual((result.missing, result.short), ([], []))
+
+    def test_a_file_that_ends_before_the_window_is_named_by_its_last_date_with_blank_coverage(self):
+        adapter = FakeAdapter(spans={"tartan-2222.csv": (date(2026, 8, 1), date(2026, 9, 10))})
+        result, spreadsheet, _ = export([tartan("2222")], ["input/tartan-2222.csv"], adapter=adapter)
+        self.assertEqual(result.short, ["First Tartan Bank ••2222 covered to 2026-09-10"])
+        self.assertEqual(spreadsheet.tabs["Summary"].rows[2][:4], ["First Tartan Bank", "••2222", "", ""])
+
+    def test_short_coverage_is_named_after_failed_links_and_missing_download_accounts(self):
+        adapter = FakeAdapter(spans={"tartan-2222.csv": (date(2026, 9, 1), date(2026, 10, 10))})
+        client = FakeLinksClient(failing={"access-gingham": "ITEM_LOGIN_REQUIRED"}, institutions={"access-gingham": "First Gingham Credit Union"})
+        _, spreadsheet, lines = export(
+            [tartan("2222"), tartan("3333")], ["input/tartan-2222.csv"], adapter=adapter, tokens={"a1b2c3-gingham": "access-gingham"}, client=client,
+        )
+        incomplete = "missing First Gingham Credit Union [a1b2c3], First Tartan Bank ••3333; First Tartan Bank ••2222 covered to 2026-10-10"
+        self.assertEqual(spreadsheet.tabs["Summary"].rows[0], [f"INCOMPLETE: {incomplete}"])
+        self.assertIn(f"! Partial Export: {incomplete}", lines)
+
+
+class OverlapTest(unittest.TestCase):
+    # On the Link FakeLinksClient returns, under another case, as an adapter may spell its Institution
+    ON_PLAID = DownloadAccount(adapter="fake", institution="FIRST PLATYPUS BANK", last4="9496", kind="liability")
+
+    def test_an_account_on_a_link_and_in_the_config_is_exported_once_from_plaid_with_a_warning_and_its_page_never_opens(self):
+        with tempfile.TemporaryDirectory() as temp:
+            downloads_dir = Path(temp) / "Downloads"
+            downloads_dir.mkdir()
+            user = FakeUser(downloads_dir, [])
+            assist = Assist(downloads_dir=downloads_dir, archive_dir=Path(temp) / ".downloads", open_page=user.open_page, clock=user)
+            result, spreadsheet, lines = export(
+                [self.ON_PLAID], [], adapter=FakeAdapter(url="https://tartan.example/export"), tokens={"item-platypus": "access-platypus"}, assist=assist,
+            )
+        self.assertEqual(user.opened, [])
+        self.assertEqual([row[:2] for row in spreadsheet.tabs["Summary"].rows[1:]], [["First Platypus Bank", "Credit card (9496)"]])
+        self.assertEqual(result.missing, [])
+        self.assertIn(
+            "   ! FIRST PLATYPUS BANK ••9496 is also on Link First Platypus Bank [item-1], so it's exported from Plaid; "
+            "remove it from download_accounts.toml", lines,
+        )
+
+    def test_when_its_link_fails_the_download_is_used_since_plaid_has_no_copy(self):
+        client = FakeLinksClient(failing={"access-platypus": "ITEM_LOGIN_REQUIRED"}, institutions={"access-platypus": "First Platypus Bank"})
+        result, spreadsheet, _ = export([self.ON_PLAID], ["input/platypus-9496.csv"], tokens={"item-platypus": "access-platypus"}, client=client)
+        self.assertEqual([row[:2] for row in spreadsheet.tabs["Summary"].rows[2:]], [["FIRST PLATYPUS BANK", "••9496"]])
+        self.assertEqual(result.missing, ["First Platypus Bank [item-p]"])
+
+    def test_its_file_in_input_is_not_parsed_or_reported_as_unused(self):
+        adapter = FakeAdapter()
+        _, _, lines = export([self.ON_PLAID], ["input/platypus-9496.csv"], adapter=adapter, tokens={"item-platypus": "access-platypus"})
+        self.assertEqual(adapter.parsed, [])
+        self.assertNotIn("   ! Not used: platypus-9496.csv matches no Download Account", lines)
+
+    def test_the_same_last_four_digits_at_another_institution_is_not_an_overlap(self):
+        result, spreadsheet, _ = export([tartan("9496")], ["input/tartan-9496.csv"], tokens={"item-platypus": "access-platypus"})
+        self.assertEqual([row[:2] for row in spreadsheet.tabs["Summary"].rows[1:]], [["First Platypus Bank", "Credit card (9496)"], ["First Tartan Bank", "••9496"]])
 
 
 GINGHAM = FailedLink(item_id="item-gingham", institution="First Gingham Credit Union", error_code="ITEM_LOGIN_REQUIRED")
