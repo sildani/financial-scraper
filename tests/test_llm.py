@@ -112,5 +112,24 @@ class ParseWithoutGeminiKeyTest(unittest.TestCase):
         self.assertEqual([file.name for file in self.cache_dir.iterdir()], ["statement.pdf"])
 
 
+class StatementSchemaTest(unittest.TestCase):
+    """AccountSummary is Gemini's output schema for a Statement, so each field it gains is one more Gemini is asked to fill."""
+
+    WRAP_EXPORT_ONLY_FIELDS = (
+        "a field the Export sets, not Gemini, must be wrapped in SkipJsonSchema; "
+        "add it to the pinned fields in StatementSchemaTest only if Gemini should read it from a Statement"
+    )
+
+    def test_gemini_is_asked_only_for_the_statement_fields(self):
+        schema = AccountSummary.model_json_schema()
+        self.assertEqual(set(schema["properties"]), {
+            "institution", "account_name", "period", "period_start", "period_end", "account_kind",
+            "balance", "amount_due", "due_date", "interest_charged", "transactions",
+        }, self.WRAP_EXPORT_ONLY_FIELDS)
+        self.assertEqual(set(schema["$defs"]["ParsedTransaction"]["properties"]), {
+            "transaction_date", "description", "clean_merchant", "amount", "category",
+        }, self.WRAP_EXPORT_ONLY_FIELDS)
+
+
 if __name__ == "__main__":
     unittest.main()
