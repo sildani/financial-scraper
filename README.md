@@ -133,7 +133,7 @@ Connect directly to your financial institutions using Plaid.
 
 ## Development
 
-The pre-commit hook runs the checks listed in `.pre-commit-config.yaml`, and CI runs that same file on every pull request and every push to `main`: `ruff check`, `pyright` (basic checking), the unit tests and `scripts/check_glossary_terms.py`, which fails on any `_Retired_:` term from `GLOSSARY.md`. Their config is in `pyproject.toml`, and the tool versions are pinned in `requirements-dev.txt`.
+The pre-commit hook runs the checks listed in `.pre-commit-config.yaml`, and CI runs that same file on every pull request and every push to `main`: `ruff check`, `pyright` (basic checking), the unit tests and `checks/check_glossary_terms.py`, which fails on any `_Retired_:` term from `GLOSSARY.md`. Their config is in `pyproject.toml`, and the tool versions are pinned in `requirements-dev.txt`.
 
 ```bash
 pip install -r requirements-dev.txt

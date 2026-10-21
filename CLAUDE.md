@@ -1,4 +1,4 @@
-Follow `CODING_STANDARDS.md`, and run the checks with `.venv/bin/pre-commit run --all-files`.
+Reviews enforce `CODING_STANDARDS.md`; run the checks with `.venv/bin/pre-commit run --all-files`.
 
 ## Agent skills
 
