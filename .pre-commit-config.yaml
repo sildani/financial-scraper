@@ -22,3 +22,9 @@ repos:
         language: system
         always_run: true
         pass_filenames: false
+      - id: glossary-terms
+        name: retired glossary terms
+        entry: .venv/bin/python scripts/check_glossary_terms.py
+        language: system
+        always_run: true
+        pass_filenames: false
