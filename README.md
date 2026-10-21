@@ -81,7 +81,9 @@ Download Accounts are the Accounts Plaid can't reach. They exist only in Product
    - **Otherwise it's an assisted Download.** The app opens the Account's page in your browser (for a Statement, go to the Institution's website yourself) and prints what to pick, such as `Choose CSV, 2026-09-18 to 2026-10-19`. You click Download, and the app waits for the file in your downloads folder. Only a file that lands after the page opened, and that the adapter recognizes, is taken; anything else is left where it is. The file is moved into `.downloads/<institution>-<last4>/` (gitignored), named by the Export window, and files there are deleted after 90 days.
    - **Each Account waits up to 5 minutes, and pressing Enter skips it.** The run then moves on to the next Account.
 
-Only Transactions inside the Export window are exported, and pending activity never is. A Download Account whose Download timed out, was skipped, or couldn't be processed makes a **Partial Export**: Summary and Analysis start with an `INCOMPLETE: missing <Institution> ••<last4>` row.
+Only Transactions inside the Export window are exported, and pending activity never is. Summary's Coverage column shows the dates each Download Account's file spans within the Export window; a Plaid Account always covers the whole window. A Download Account whose Download timed out, was skipped, or couldn't be processed makes a **Partial Export**: Summary and Analysis start with an `INCOMPLETE: missing <Institution> ••<last4>` row. So does one whose Coverage ends before the window does: the row names it after anything missing, as in `INCOMPLETE: missing <Institution> ••<last4>; <Institution> ••<last4> covered to <date>`. Coverage that only starts late doesn't count.
+
+If a Download Account is also on a Plaid Link (the same Institution, ignoring case, and last four digits), the Plaid copy is exported, its page isn't opened, and the run tells you to remove it from `download_accounts.toml`. If that Link fails, Plaid has no copy, so the Download is used as usual.
 
 #### Statements
 

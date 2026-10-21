@@ -1,6 +1,6 @@
 from datetime import date
 from pathlib import Path
-from typing import List, Optional, Protocol
+from typing import List, Mapping, Optional, Protocol
 
 from pydantic import BaseModel
 
@@ -11,10 +11,10 @@ from src.assisted_downloads import (
     recognized,
     watch_downloads,
 )
-from src.config import INPUT_DIR
+from src.config import DOWNLOAD_ACCOUNTS_FILE, INPUT_DIR
 from src.download_accounts import DownloadAccount
 from src.export_window import ExportWindow
-from src.schemas import AccountSummary, Transaction
+from src.schemas import AccountSummary, Transaction, account_key
 
 
 class Coverage(BaseModel):
@@ -25,11 +25,16 @@ class Coverage(BaseModel):
     start: date
     end: date
 
+    @property
+    def label(self) -> str:
+        return f"{self.start.isoformat()} to {self.end.isoformat()}"
+
 
 class Download(BaseModel):
     """One Download Account's file, parsed: its Transactions inside the Export window, and its Coverage."""
     summary: AccountSummary
     coverage: Optional[Coverage]  # None when the file spans none of the window
+    covered_to: Optional[date] = None  # The file's last date when it ends before the window does, which makes a Partial Export
 
 
 class Adapter(Watched, Protocol):
@@ -52,31 +57,40 @@ def download(account: DownloadAccount, span: Coverage, transactions: List[Transa
     summary = AccountSummary(**{
         "institution": account.institution,
         "account_name": account.account_name,
-        "period": f"{coverage.start.isoformat()} to {coverage.end.isoformat()}" if coverage else "",
+        "period": coverage.label if coverage else "",
+        "coverage": coverage.label if coverage else None,
         "account_kind": account.kind,
         "balance": balance,
         "transactions": [tx for tx in transactions if window.start <= date.fromisoformat(tx.transaction_date) <= window.end],
         **statement,
     })
-    return Download(summary=summary, coverage=coverage)
+    # Only the end counts: a late start may be a Statement period or an Account opened in the window
+    return Download(summary=summary, coverage=coverage, covered_to=span.end if span.end < window.end else None)
 
 
 class FetchedDownloads(BaseModel):
     downloads: List[Download]
     missing: List[DownloadAccount]  # Any missing Download Account makes the Export a Partial Export
+    short: List[str] = []  # Each Download Account whose Coverage stops short, as a Partial Export names it
 
 
-def fetch_downloads(accounts: List[DownloadAccount], files: List[Path], window: ExportWindow, adapters: dict[str, Adapter], assist: Optional[Assist] = None) -> FetchedDownloads:
+def fetch_downloads(accounts: List[DownloadAccount], files: List[Path], window: ExportWindow, adapters: dict[str, Adapter], assist: Optional[Assist] = None, on_links: Optional[Mapping[tuple[str, str], str]] = None) -> FetchedDownloads:
     """
     Parses each Download Account's file: the one among files its adapter recognizes or, failing that, an
     assisted Download through assist. An Account with no such file, or whose file can't be parsed, is missing
-    instead of failing the run.
+    instead of failing the run. An Account also among on_links, as plaid_transformer.accounts_on_links gives
+    them, is skipped.
     """
-    downloads, missing, used = [], [], set()
+    downloads, missing, short, used = [], [], [], set()
     for account in accounts:
         adapter = adapters[account.adapter]
         matches = [file for file in sorted(files) if recognized(adapter, file, account)]
         used.update(matches)
+        link = (on_links or {}).get(account_key(account.institution, account.last4))
+        if link:
+            # Every Account has one Source, and Plaid wins (ADR-0003), so its page isn't opened either
+            print(f"   ! {account.label} is also on Link {link}, so it's exported from Plaid; remove it from {DOWNLOAD_ACCOUNTS_FILE.name}")
+            continue
         assisted_by = None  # The Assist that fetched the file, which then archives it
         if matches:
             # File names usually sort by date, so the last one is the latest
@@ -104,7 +118,11 @@ def fetch_downloads(accounts: List[DownloadAccount], files: List[Path], window: 
             continue
         downloads.append(download)
         print(f"   ✓ {account.label}: {len(download.summary.transactions)} transactions from {file.name}{moved}")
+        if download.covered_to:
+            covered_to = f"covered to {download.covered_to.isoformat()}"
+            short.append(f"{account.label} {covered_to}")
+            print(f"   ! {account.label}: {covered_to}, short of the Export window")
 
     for file in sorted(set(files) - used):
         print(f"   ! Not used: {file.name} matches no Download Account")
-    return FetchedDownloads(downloads=downloads, missing=missing)
+    return FetchedDownloads(downloads=downloads, missing=missing, short=short)

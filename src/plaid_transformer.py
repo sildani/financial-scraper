@@ -1,5 +1,6 @@
 from typing import AbstractSet, List
 
+from src.downloads import Coverage
 from src.export_window import ExportWindow
 from src.linked_movements import LinkedMovements
 from src.schemas import (
@@ -8,8 +9,10 @@ from src.schemas import (
     PlaidTransaction,
     SpendingCategory,
     Transaction,
+    account_key,
     category_spend_and_income,
     link_institution,
+    link_label,
 )
 
 # A mapping from Plaid's personal finance categories to our fixed Categories, keyed by
@@ -49,6 +52,15 @@ PLAID_CATEGORY_MAPPING = {
     "LOAN_PAYMENTS_CAR_PAYMENT": SpendingCategory.MORTGAGE_LOANS,
     "LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT": SpendingCategory.MORTGAGE_LOANS,
 }
+
+def accounts_on_links(responses: List[dict]) -> dict[tuple[str, str], str]:
+    """Each Account on the fetched Links, by account_key, mapped to its Link as output names it."""
+    on_links = {}
+    for response in responses:
+        institution = link_institution(response["item"])
+        for acc in response["accounts"]:
+            on_links[account_key(institution, acc.get("mask") or "")] = link_label(response["item"]["item_id"], institution)
+    return on_links
 
 def summarize_link(response: dict, window: ExportWindow, movements: LinkedMovements) -> List[AccountSummary]:
     """
@@ -118,10 +130,12 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
             )
         )
 
+    window_label = Coverage(start=window.start, end=window.end).label
     return AccountSummary(
         institution=institution,
         account_name=account.label,
-        period=f"{window.start.isoformat()} to {window.end.isoformat()}",
+        period=window_label,
+        coverage=window_label,  # A Plaid Account always covers the window
         account_kind=account.kind,
         balance=account.balances.current,
         transactions=posted,
