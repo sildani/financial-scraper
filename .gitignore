@@ -14,6 +14,7 @@ service_account.json
 .cache/
 .scratch/
 input/
+.downloads/
 download_accounts.toml
 *.pdf
 *.PDF

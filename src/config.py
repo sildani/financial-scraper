@@ -15,6 +15,8 @@ BASE_DIR = Path(__file__).parent.parent
 INPUT_DIR = BASE_DIR / "input"
 CACHE_DIR = BASE_DIR / ".cache"
 DOWNLOAD_ACCOUNTS_FILE = BASE_DIR / "download_accounts.toml"  # Local and gitignored: which Accounts you hold
+DOWNLOADS_ARCHIVE_DIR = BASE_DIR / ".downloads"  # Gitignored: each assisted Download, kept for 90 days
+DEFAULT_DOWNLOADS_DIR = Path.home() / "Downloads"
 
 # Create cache directory if it doesn't exist
 CACHE_DIR.mkdir(exist_ok=True)

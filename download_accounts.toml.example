@@ -2,7 +2,7 @@
 # Copy this to download_accounts.toml (gitignored) and list your own. It's read only in Production.
 # Never list an Account that's on a Link.
 
-# Where assisted Downloads land (default ~/Downloads); not used yet
+# Where your browser saves downloads (default ~/Downloads); the app watches it for each Download
 # downloads_dir = "~/Downloads"
 
 # A vendor adapter names the Institution itself

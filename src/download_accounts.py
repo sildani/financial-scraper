@@ -1,3 +1,4 @@
+import re
 import tomllib
 from pathlib import Path
 from typing import List, Optional
@@ -25,6 +26,11 @@ class DownloadAccount(BaseModel):
     def label(self) -> str:
         """The Account as output names it: its Institution and last four digits."""
         return f"{self.institution} {self.account_name}"
+
+    @property
+    def slug(self) -> str:
+        """The Account as a folder name, e.g. first-gingham-credit-union-4321."""
+        return re.sub(r"[^a-z0-9]+", "-", f"{self.institution} {self.last4}".lower()).strip("-")
 
 
 class DownloadConfig(BaseModel):

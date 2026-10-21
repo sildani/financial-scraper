@@ -1,16 +1,21 @@
 import contextlib
 import io
+import os
+import tempfile
 import unittest
 from pathlib import Path
 
 from main import Action, parse_args, run_export, run_relink
-from src.download_accounts import DownloadAccount
-from src.downloads import Coverage, Fetch, download
+from src.assisted_downloads import Assist, Fetch
+from src.downloads import Coverage, download
 from src.plaid_client import FailedLink, RelinkCheck
 from src.schemas import SpendingCategory, Transaction
+from tests.test_assisted_downloads import START, FakeUser, tartan
 from tests.test_plaid_client import FakeResponse, plaid_error
 from tests.test_plaid_transformer import WINDOW, account, link_response
 from tests.test_sheets import FakeSpreadsheet
+
+DAY_S = 24 * 60 * 60
 
 
 def parse_error(argv) -> str:
@@ -111,17 +116,14 @@ class FakeAdapter:
         return download(account, Coverage(start=window.start, end=window.end), [purchase], window, 500.00)
 
 
-def tartan(last4: str) -> DownloadAccount:
-    return DownloadAccount(adapter="fake", institution="First Tartan Bank", last4=last4, kind="liability")
-
-
-def export(accounts, input_files, adapter=None, tokens=None, client=None):
+def export(accounts, input_files, adapter=None, tokens=None, client=None, assist=None):
     """run_export over WINDOW with Links in tokens (none by default) and the fake adapter; returns it, the Sheet and stdout."""
     spreadsheet, stdout = FakeSpreadsheet(), io.StringIO()
     with contextlib.redirect_stdout(stdout):
         result = run_export(
             tokens or {}, accounts, WINDOW, [Path(f) for f in input_files], adapters={"fake": adapter or FakeAdapter()},
             spreadsheet=spreadsheet, client=client or FakeLinksClient(failing={}, institutions={"access-platypus": "First Platypus Bank"}),
+            assist=assist,
         )
     return result, spreadsheet, stdout.getvalue().splitlines()
 
@@ -163,6 +165,28 @@ class UnifiedExportTest(unittest.TestCase):
     def test_a_file_no_download_account_matches_is_named(self):
         _, _, lines = export([tartan("2222")], ["input/tartan-2222.csv", "input/notes.txt"])
         self.assertIn("   ! Not used: notes.txt matches no Download Account", lines)
+
+    def assist(self, temp: str) -> Assist:
+        downloads_dir = Path(temp) / "Downloads"
+        downloads_dir.mkdir()
+        user = FakeUser(downloads_dir, [])
+        return Assist(downloads_dir=downloads_dir, archive_dir=Path(temp) / ".downloads", open_page=user.open_page, clock=user)
+
+    def test_an_assisted_download_that_never_lands_makes_a_partial_export_naming_its_account(self):
+        with tempfile.TemporaryDirectory() as temp:
+            result, spreadsheet, _ = export([tartan("2222"), tartan("3333")], ["input/tartan-2222.csv"], assist=self.assist(temp))
+        self.assertEqual(result.missing, ["First Tartan Bank ••3333"])
+        self.assertEqual(spreadsheet.tabs["Summary"].rows[0], ["INCOMPLETE: missing First Tartan Bank ••3333"])
+
+    def test_archived_downloads_older_than_90_days_are_pruned_at_the_start(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp) / ".downloads" / "first-tartan-bank-2222"
+            folder.mkdir(parents=True)
+            for name, days in [("2026-06-01_to_2026-07-01.csv", 91), ("2026-07-01_to_2026-08-01.csv", 89)]:
+                (folder / name).write_text("First Tartan Bank 2222\n")
+                os.utime(folder / name, (START - days * DAY_S, START - days * DAY_S))
+            export([], [], assist=self.assist(temp))
+            self.assertEqual([f.name for f in folder.iterdir()], ["2026-07-01_to_2026-08-01.csv"])
 
     def test_no_export_is_written_when_nothing_could_be_fetched(self):
         result, spreadsheet, _ = export([tartan("3333")], [])

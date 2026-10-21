@@ -11,7 +11,14 @@ import plaid
 from pydantic import BaseModel
 
 from src.adapters import adapters as all_adapters
-from src.config import DOWNLOAD_ACCOUNTS_FILE, INPUT_DIR, current_plaid_environment
+from src.assisted_downloads import Assist, prune_archive
+from src.config import (
+    DEFAULT_DOWNLOADS_DIR,
+    DOWNLOAD_ACCOUNTS_FILE,
+    DOWNLOADS_ARCHIVE_DIR,
+    INPUT_DIR,
+    current_plaid_environment,
+)
 from src.download_accounts import DownloadAccount, load_download_accounts
 from src.downloads import Adapter, fetch_downloads
 from src.export_window import ExportWindow, export_window, history_warning
@@ -70,11 +77,13 @@ class Export(BaseModel):
     missing: List[str] = []  # Each failed Link, then each missing Download Account, as output names them
     tabs: List[str] = []  # Empty when no Export was written
 
-def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: ExportWindow, input_files: List[Path], adapters: dict[str, Adapter] | None = None, spreadsheet: Spreadsheet | None = None, client: LinksClient | None = None) -> Export:
+def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: ExportWindow, input_files: List[Path], adapters: dict[str, Adapter] | None = None, spreadsheet: Spreadsheet | None = None, client: LinksClient | None = None, assist: Assist | None = None) -> Export:
     """
     One Export over window of every Account on every Link in tokens, then every Download Account
-    from its file among input_files, written to the Environment's Sheet.
+    from its file among input_files or, failing that, through assist, written to the Environment's Sheet.
     """
+    if assist:
+        prune_archive(assist)
     # With no Links there's nothing to ask Plaid, and no Plaid client is needed
     fetched = fetch_links(tokens, window.start, window.end, client=client) if tokens else FetchedLinks(responses=[], failed=[])
     responses = fetched.responses
@@ -97,8 +106,8 @@ def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: E
                 print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
 
     if download_accounts:
-        print(f"\nReading Downloads from {INPUT_DIR.name}/...")
-    downloads = fetch_downloads(download_accounts, input_files, window, adapters or all_adapters())
+        print(f"\nFetching Downloads (a matching file in {INPUT_DIR.name}/ is used first)...")
+    downloads = fetch_downloads(download_accounts, input_files, window, adapters or all_adapters(), assist=assist)
     summaries += [download.summary for download in downloads.downloads]
 
     missing = [link.label for link in fetched.failed] + [account.label for account in downloads.missing]
@@ -185,7 +194,8 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Exports every Account to Google Sheets in one run: each Account on every Plaid Link, then each "
-            f"Download Account in {DOWNLOAD_ACCOUNTS_FILE.name} from its file in {INPUT_DIR.name}/ (Production only)."
+            f"Download Account in {DOWNLOAD_ACCOUNTS_FILE.name}, from its file in {INPUT_DIR.name}/ or else by opening "
+            "its page and waiting for the file in your downloads folder (Production only)."
         )
     )
     # Without one of these, the run is an Export
@@ -270,9 +280,13 @@ def main():
     # An Export: every other action has returned
     adapters = all_adapters(force=args.force)
     try:
-        download_accounts = load_download_accounts(DOWNLOAD_ACCOUNTS_FILE, environment.name, adapters).accounts
+        download_config = load_download_accounts(DOWNLOAD_ACCOUNTS_FILE, environment.name, adapters)
     except ValueError as e:
         sys.exit(f"Error: {e}")
+    download_accounts = download_config.accounts
+    assist = Assist(downloads_dir=download_config.downloads_dir or DEFAULT_DOWNLOADS_DIR, archive_dir=DOWNLOADS_ARCHIVE_DIR)
+    if download_accounts and not assist.downloads_dir.is_dir():
+        sys.exit(f"Error: the downloads folder {assist.downloads_dir} doesn't exist; set downloads_dir in {DOWNLOAD_ACCOUNTS_FILE.name}")
     tokens = load_tokens()
     if not tokens and not download_accounts:
         sys.exit(
@@ -292,7 +306,7 @@ def main():
     if tokens:
         print("\nFetching transactions from Plaid...")
     input_files = [path for path in INPUT_DIR.glob("*") if path.is_file() and not path.name.startswith(".")]
-    if not run_export(tokens, download_accounts, window, input_files, adapters=adapters).summaries:
+    if not run_export(tokens, download_accounts, window, input_files, adapters=adapters, assist=assist).summaries:
         sys.exit("Error: no Link or Download Account could be fetched, so no Export was written")
 
 if __name__ == "__main__":
