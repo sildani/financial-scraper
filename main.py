@@ -13,9 +13,8 @@ from pydantic import BaseModel
 from src.adapters import adapters as all_adapters
 from src.assisted_downloads import Assist, prune_archive
 from src.config import (
-    DEFAULT_DOWNLOADS_DIR,
     DOWNLOAD_ACCOUNTS_FILE,
-    DOWNLOADS_ARCHIVE_DIR,
+    DOWNLOAD_ARCHIVE_DIR,
     INPUT_DIR,
     current_plaid_environment,
 )
@@ -284,9 +283,7 @@ def main():
     except ValueError as e:
         sys.exit(f"Error: {e}")
     download_accounts = download_config.accounts
-    assist = Assist(downloads_dir=download_config.downloads_dir or DEFAULT_DOWNLOADS_DIR, archive_dir=DOWNLOADS_ARCHIVE_DIR)
-    if download_accounts and not assist.downloads_dir.is_dir():
-        sys.exit(f"Error: the downloads folder {assist.downloads_dir} doesn't exist; set downloads_dir in {DOWNLOAD_ACCOUNTS_FILE.name}")
+    assist = Assist(downloads_dir=download_config.downloads_dir, archive_dir=DOWNLOAD_ARCHIVE_DIR)
     tokens = load_tokens()
     if not tokens and not download_accounts:
         sys.exit(

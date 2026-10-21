@@ -6,19 +6,25 @@ from src.adapters import adapters
 from src.download_accounts import DownloadAccount, load_download_accounts
 
 
-def load(toml: str | None, environment="production"):
-    """load_download_accounts over a config file holding toml, or with no config file when toml is None."""
+def load(toml: str | None, environment="production", default_downloads_dir: Path | None = None):
+    """
+    load_download_accounts over a config file holding toml, or with no config file when toml is None. The
+    default downloads folder is the config's own folder unless given, so no test depends on ~/Downloads.
+    """
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "download_accounts.toml"
         if toml is not None:
             path.write_text(toml)
-        return load_download_accounts(path, environment, adapters())
+        return load_download_accounts(path, environment, adapters(), default_downloads_dir=default_downloads_dir or Path(directory))
 
 
-def load_error(toml: str) -> str:
+def load_error(toml: str, default_downloads_dir: Path | None = None) -> str:
     with unittest.TestCase().assertRaises(ValueError) as raised:
-        load(toml)
+        load(toml, default_downloads_dir=default_downloads_dir)
     return str(raised.exception)
+
+
+GINGHAM_ENTRY = '[[account]]\nadapter = "first_gingham"\nlast4 = "4321"\nkind = "liability"\n'
 
 
 class LoadDownloadAccountsTest(unittest.TestCase):
@@ -50,9 +56,21 @@ class LoadDownloadAccountsTest(unittest.TestCase):
         """)
         self.assertEqual([account.label for account in config.accounts], ["First Platypus Bank ••1357"])
 
-    def test_the_downloads_folder_is_optional(self):
-        self.assertIsNone(load("").downloads_dir)
-        self.assertEqual(load('downloads_dir = "~/Fetched"').downloads_dir, Path("~/Fetched").expanduser())
+    def test_the_downloads_folder_is_the_default_unless_the_config_sets_one(self):
+        with tempfile.TemporaryDirectory() as default, tempfile.TemporaryDirectory() as folder:
+            self.assertEqual(load("", default_downloads_dir=Path(default)).downloads_dir, Path(default))
+            self.assertEqual(load('downloads_dir = ""', default_downloads_dir=Path(default)).downloads_dir, Path(default))
+            self.assertEqual(load(f'downloads_dir = "{folder}"').downloads_dir, Path(folder))
+        self.assertEqual(load('downloads_dir = "~"').downloads_dir, Path.home())
+
+    def test_a_downloads_folder_that_does_not_exist_is_rejected_when_there_are_download_accounts(self):
+        error = load_error(f'downloads_dir = "/no/such/folder"\n{GINGHAM_ENTRY}')
+        self.assertIn("/no/such/folder", error)
+        self.assertIn("set downloads_dir", error)
+        self.assertIn("/no/such/default", load_error(GINGHAM_ENTRY, default_downloads_dir=Path("/no/such/default")))
+
+    def test_a_downloads_folder_that_does_not_exist_is_fine_with_no_download_accounts(self):
+        self.assertEqual(load('downloads_dir = "/no/such/folder"').accounts, [])
 
     def test_no_config_file_means_no_download_accounts(self):
         self.assertEqual(load(None).accounts, [])
