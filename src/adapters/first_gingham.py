@@ -2,8 +2,9 @@ import csv
 from datetime import date
 from pathlib import Path
 
+from src.assisted_downloads import Fetch
 from src.download_accounts import DownloadAccount
-from src.downloads import Coverage, Download, Fetch, download
+from src.downloads import Coverage, Download, download
 from src.export_window import ExportWindow
 from src.schemas import SpendingCategory, Transaction, category_spend_and_income
 

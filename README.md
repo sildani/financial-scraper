@@ -23,6 +23,7 @@ An Agentic AI pipeline built with Python, PydanticAI, and Google Gemini to extra
   - `plaid_transformer.py`: Transforms Plaid data into the application's data format.
   - `download_accounts.py`: Reads the local Download Account config.
   - `downloads.py`: The adapter interface, and matching each Download Account to its file.
+  - `assisted_downloads.py`: Assisted Downloads: opening each Account's page, watching the downloads folder, and the `.downloads/` archive.
   - `adapters/`: One adapter per vendor (`first_gingham.py` is the worked example), plus `statement.py` for any Institution's Statement PDF.
 - `scripts/`: Diagnostic and utility scripts (e.g., testing environment, category inspector, etc.).
 - `input/`: Directory where Downloads (Statement PDFs, CSVs) are placed for processing.
@@ -55,7 +56,7 @@ An Agentic AI pipeline built with Python, PydanticAI, and Google Gemini to extra
 
 ## Usage
 
-Every run fetches from both **Sources** and writes one Export (ADR-0003): each Account on every Plaid Link, then each **Download Account** from its file in `input/`. Each Account has exactly one Source.
+Every run fetches from both **Sources** and writes one Export (ADR-0003): each Account on every Plaid Link, then each **Download Account**, either from its file in `input/` or as an assisted Download. Each Account has exactly one Source.
 
 ```bash
 python main.py
@@ -73,10 +74,14 @@ Download Accounts are the Accounts Plaid can't reach. They exist only in Product
    - `last4`: the Account's last four digits.
    - `kind`: `liability` (credit card, loan) or `deposit` (checking, savings, anything else).
    - `balance_only` (optional): not used yet.
-2. **Put each Account's file in `input/`.** Each adapter recognizes its own files by their content, not their names. If several files match one Account, the last by name is used; a file no Account matches is named and left alone.
-3. **Run `python main.py`.** Only Transactions inside the Export window are exported, and pending activity never is.
 
-A Download Account with no matching file, or whose file can't be processed, makes a **Partial Export**: Summary and Analysis start with an `INCOMPLETE: missing <Institution> ••<last4>` row.
+   `downloads_dir` (optional, at the top) is where your browser saves downloads; it defaults to `~/Downloads`.
+2. **Run `python main.py`.** After Plaid, each Download Account is fetched in turn:
+   - **A file you dropped into `input/`** is used first, without opening anything. Each adapter recognizes its own files by their content, not their names. If several files match one Account, the last by name is used; a file no Account matches is named and left alone.
+   - **Otherwise it's an assisted Download.** The app opens the Account's page in your browser (for a Statement, go to the Institution's website yourself) and prints what to pick, such as `Choose CSV, 2026-09-18 to 2026-10-19`. You click Download, and the app waits for the file in your downloads folder. Only a file that lands after the page opened, and that the adapter recognizes, is taken; anything else is left where it is. The file is moved into `.downloads/<institution>-<last4>/` (gitignored), named by the Export window, and files there are deleted after 90 days.
+   - **Each Account waits up to 5 minutes, and pressing Enter skips it.** The run then moves on to the next Account.
+
+Only Transactions inside the Export window are exported, and pending activity never is. A Download Account whose Download timed out, was skipped, or couldn't be processed makes a **Partial Export**: Summary and Analysis start with an `INCOMPLETE: missing <Institution> ••<last4>` row.
 
 #### Statements
 

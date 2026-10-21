@@ -2,8 +2,9 @@ from datetime import date
 from pathlib import Path
 from typing import Callable, Optional
 
+from src.assisted_downloads import Fetch
 from src.download_accounts import DownloadAccount
-from src.downloads import Coverage, Download, Fetch, download
+from src.downloads import Coverage, Download, download
 from src.export_window import ExportWindow
 from src.llm import process_statement_pdf
 from src.schemas import AccountSummary
