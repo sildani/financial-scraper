@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.check_glossary_terms import main, retired_terms
+from checks.check_glossary_terms import main, retired_terms
 
 REPO_GLOSSARY = Path(__file__).resolve().parent.parent / "GLOSSARY.md"
 # Made-up terms, since spelling out the real ones here would fail the check on this file
