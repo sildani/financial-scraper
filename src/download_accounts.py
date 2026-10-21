@@ -67,5 +67,7 @@ def load_download_accounts(path: Path, environment: str, adapters: dict) -> Down
             accounts.append(DownloadAccount(**{"institution": institution, **entry}))
         except ValidationError as e:
             raise ValueError(f"{where}: {e}") from None
-    downloads_dir = config.get("downloads_dir")
-    return DownloadConfig(accounts=accounts, downloads_dir=Path(downloads_dir).expanduser() if downloads_dir else None)
+    downloads_dir = Path(config["downloads_dir"]).expanduser() if "downloads_dir" in config else None
+    if downloads_dir and not downloads_dir.is_dir():
+        raise ValueError(f"{path.name}: downloads_dir {downloads_dir} is not a folder")
+    return DownloadConfig(accounts=accounts, downloads_dir=downloads_dir)

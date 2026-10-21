@@ -52,7 +52,12 @@ class LoadDownloadAccountsTest(unittest.TestCase):
 
     def test_the_downloads_folder_is_optional(self):
         self.assertIsNone(load("").downloads_dir)
-        self.assertEqual(load('downloads_dir = "~/Fetched"').downloads_dir, Path("~/Fetched").expanduser())
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertEqual(load(f'downloads_dir = "{folder}"').downloads_dir, Path(folder))
+        self.assertEqual(load('downloads_dir = "~"').downloads_dir, Path.home())
+
+    def test_a_downloads_folder_that_is_not_a_folder_is_rejected(self):
+        self.assertIn("downloads_dir", load_error('downloads_dir = "/no/such/folder"'))
 
     def test_no_config_file_means_no_download_accounts(self):
         self.assertEqual(load(None).accounts, [])

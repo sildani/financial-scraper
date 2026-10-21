@@ -285,8 +285,6 @@ def main():
         sys.exit(f"Error: {e}")
     download_accounts = download_config.accounts
     assist = Assist(downloads_dir=download_config.downloads_dir or DEFAULT_DOWNLOADS_DIR, archive_dir=DOWNLOADS_ARCHIVE_DIR)
-    if download_accounts and not assist.downloads_dir.is_dir():
-        sys.exit(f"Error: the downloads folder {assist.downloads_dir} doesn't exist; set downloads_dir in {DOWNLOAD_ACCOUNTS_FILE.name}")
     tokens = load_tokens()
     if not tokens and not download_accounts:
         sys.exit(
