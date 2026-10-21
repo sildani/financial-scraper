@@ -1,10 +1,11 @@
 import re
 import tomllib
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from src.config import DEFAULT_DOWNLOADS_DIR
 from src.schemas import AccountKind
 
 
@@ -35,17 +36,19 @@ class DownloadAccount(BaseModel):
 
 class DownloadConfig(BaseModel):
     accounts: List[DownloadAccount] = []
-    downloads_dir: Optional[Path] = None  # Where assisted Downloads land; None for the default
+    downloads_dir: Path  # Where assisted Downloads land
 
 
-def load_download_accounts(path: Path, environment: str, adapters: dict) -> DownloadConfig:
+def load_download_accounts(path: Path, environment: str, adapters: dict, default_downloads_dir: Path = DEFAULT_DOWNLOADS_DIR) -> DownloadConfig:
     """
     The Download Accounts in the config at path, each with its Institution from its adapter, or from the
-    entry itself for an adapter that has none (the Statement adapter). Raises ValueError for a bad entry.
+    entry itself for an adapter that has none (the Statement adapter), and the downloads folder: the
+    config's downloads_dir, or else default_downloads_dir. Raises ValueError for a bad entry, or for a
+    downloads folder that doesn't exist when there are Download Accounts to wait for.
     """
     # Download Accounts exist only in Production, and a missing config means there are none
     if environment != "production" or not path.exists():
-        return DownloadConfig()
+        return DownloadConfig(downloads_dir=default_downloads_dir)
     with open(path, "rb") as f:
         try:
             config = tomllib.load(f)
@@ -67,7 +70,8 @@ def load_download_accounts(path: Path, environment: str, adapters: dict) -> Down
             accounts.append(DownloadAccount(**{"institution": institution, **entry}))
         except ValidationError as e:
             raise ValueError(f"{where}: {e}") from None
-    downloads_dir = Path(config["downloads_dir"]).expanduser() if "downloads_dir" in config else None
-    if downloads_dir and not downloads_dir.is_dir():
-        raise ValueError(f"{path.name}: downloads_dir {downloads_dir} is not a folder")
+    configured = config.get("downloads_dir")
+    downloads_dir = Path(configured).expanduser() if configured else default_downloads_dir
+    if accounts and not downloads_dir.is_dir():
+        raise ValueError(f"the downloads folder {downloads_dir} doesn't exist; set downloads_dir in {path.name}")
     return DownloadConfig(accounts=accounts, downloads_dir=downloads_dir)

@@ -37,15 +37,15 @@ _Retired_: Mode, Plaid mode, Statement mode (a run no longer picks one)
 A file of Transactions that you download from an Institution's own website for one Download Account: a CSV, OFX or similar export, or a Statement. The app opens the page and waits for the file in your downloads folder; you do the clicking (an assisted Download). A file dropped into `input/` by hand counts too.
 _Avoid_: scrape, statement (for a file that isn't a Statement)
 
-**Downloads folder**:
-Where your browser saves files: `downloads_dir` in the Download Account config, `~/Downloads` by default. An assisted Download is taken from it only if it lands after that Account's page opened and its adapter recognizes it; every other file is left where it is.
-
-**Download archive**:
-The gitignored `.downloads/` folder that each assisted Download is moved into once taken, one folder per Download Account, each file named by its Export window. Files older than 90 days are deleted at the start of a run.
-_Avoid_: cache (that holds Gemini's parses of Statements)
-
 **Download Account**:
 An Account whose Source is Download, listed in the local Download Account config. Plaid Accounts are never listed there. Download Accounts exist only in Production.
+
+**Downloads folder**:
+Where your browser saves files: `downloads_dir` in the Download Account config, `~/Downloads` by default. An assisted Download is taken from it only if it is a finished file that lands after that Account's page opened and its adapter recognizes it; every other file is left where it is.
+
+**Download archive**:
+The gitignored `.downloads/` folder that each assisted Download is moved into once taken, one folder per Download Account, each file named by its Export window. Files older than 90 days are deleted at the start of each Export.
+_Avoid_: cache (that holds Gemini's parses of Statements)
 
 **Balance-only**:
 A Download Account that contributes a Balance and no Transactions, such as a closed card that still owes money. Coverage doesn't apply to it.
