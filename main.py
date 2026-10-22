@@ -77,10 +77,11 @@ class Export(BaseModel):
     short: List[str] = []  # Each Download Account whose Coverage stops short, as output names it
     tabs: List[str] = []  # Empty when no Export was written
 
-def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: ExportWindow, input_files: List[Path], adapters: dict[str, Adapter] | None = None, spreadsheet: Spreadsheet | None = None, client: LinksClient | None = None, assist: Assist | None = None) -> Export:
+def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: ExportWindow, input_files: List[Path], adapters: dict[str, Adapter] | None = None, spreadsheet: Spreadsheet | None = None, client: LinksClient | None = None, assist: Assist | None = None, exported_on: date | None = None) -> Export:
     """
     One Export over window of every Account on every Link in tokens, then every Download Account
     from its file among input_files or, failing that, through assist, written to the Environment's Sheet.
+    exported_on is the date of the Export, today by default, which each Plaid Balance is as of.
     """
     if assist:
         prune_archive(assist)
@@ -101,7 +102,7 @@ def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: E
 
         # Spend depends on Linked Movements, so summarize only once they're paired
         for response in responses:
-            for summary in summarize_link(response, window, movements):
+            for summary in summarize_link(response, window, movements, exported_on or date.today()):
                 summaries.append(summary)
                 print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
 

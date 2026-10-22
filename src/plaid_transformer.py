@@ -1,3 +1,4 @@
+from datetime import date
 from typing import AbstractSet, List
 
 from src.downloads import Coverage
@@ -62,10 +63,11 @@ def accounts_on_links(responses: List[dict]) -> dict[tuple[str, str], str]:
             on_links[account_key(institution, acc.get("mask") or "")] = link_label(response["item"]["item_id"], institution)
     return on_links
 
-def summarize_link(response: dict, window: ExportWindow, movements: LinkedMovements) -> List[AccountSummary]:
+def summarize_link(response: dict, window: ExportWindow, movements: LinkedMovements, exported_on: date) -> List[AccountSummary]:
     """
     Summarizes every Account in one Link's /transactions/get response, including Accounts
     with no Transactions in the Export window, since every Account's Balance belongs in the Export.
+    Plaid's Balance is current when fetched, whatever the window, so each is as of exported_on, the date of the Export.
     """
     institution = link_institution(response["item"])
     accounts = [PlaidAccount(**acc) for acc in response["accounts"]]
@@ -74,12 +76,12 @@ def summarize_link(response: dict, window: ExportWindow, movements: LinkedMoveme
     movement_ids |= {side.transaction_id for side in movements.unpaired}
     return [
         transform_plaid_transactions(
-            [tx for tx in transactions if tx.account_id == account.account_id], account, window, institution, movement_ids
+            [tx for tx in transactions if tx.account_id == account.account_id], account, window, institution, exported_on, movement_ids
         )
         for account in accounts
     ]
 
-def transform_plaid_transactions(transactions: List[PlaidTransaction], account: PlaidAccount, window: ExportWindow, institution: str, movement_ids: AbstractSet[str] = frozenset()) -> AccountSummary:
+def transform_plaid_transactions(transactions: List[PlaidTransaction], account: PlaidAccount, window: ExportWindow, institution: str, exported_on: date, movement_ids: AbstractSet[str] = frozenset()) -> AccountSummary:
     """
     Transforms a list of Plaid transactions for a given account into an AccountSummary.
     movement_ids are the transaction IDs of every Linked Movement side, paired or not.
@@ -138,6 +140,7 @@ def transform_plaid_transactions(transactions: List[PlaidTransaction], account: 
         coverage=window_label,  # A Plaid Account always covers the window
         account_kind=account.kind,
         balance=account.balances.current,
+        balance_as_of=exported_on,
         transactions=posted,
     )
 

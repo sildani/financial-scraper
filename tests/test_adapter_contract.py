@@ -23,6 +23,7 @@ class ContractCase(NamedTuple):
     dates: list[str]  # Every Transaction's date, in order
     coverage: Coverage
     pending: list[str]  # Descriptions of pending activity in the file
+    balance_as_of: date  # The file's last date, unclipped by the window
 
 
 GINGHAM = FirstGinghamAdapter()
@@ -58,6 +59,7 @@ def contract_cases() -> list[ContractCase]:
             # The file ends early, on 2026-10-12, and starts before the window
             coverage=Coverage(start=date(2026, 9, 18), end=date(2026, 10, 12)),
             pending=["FUEL DEPOT 88"],
+            balance_as_of=date(2026, 10, 12),
         ),
         ContractCase(
             name="Statement",
@@ -68,6 +70,7 @@ def contract_cases() -> list[ContractCase]:
             # The Statement period, 2026-09-12 to 2026-10-11, clipped to the window
             coverage=Coverage(start=date(2026, 9, 18), end=date(2026, 10, 11)),
             pending=[],
+            balance_as_of=date(2026, 10, 11),  # The Statement close
         ),
         ContractCase(
             name="First Gingham checking",
@@ -78,6 +81,7 @@ def contract_cases() -> list[ContractCase]:
             # The file runs past the window's end, as for an Export window that ends in the past
             coverage=Coverage(start=date(2026, 9, 18), end=date(2026, 10, 19)),
             pending=["FUEL DEPOT 88"],
+            balance_as_of=date(2026, 10, 23),
         ),
     ]
 
@@ -115,6 +119,13 @@ class AdapterContractTest(unittest.TestCase):
             with self.subTest(case.name):
                 self.assertEqual(self.parsed(case).coverage, case.coverage)
 
+    def test_its_balance_is_as_of_the_files_last_date(self):
+        for case in contract_cases():
+            with self.subTest(case.name):
+                summary = self.parsed(case).summary
+                self.assertIsNotNone(summary.balance)
+                self.assertEqual(summary.balance_as_of, case.balance_as_of)
+
     def test_the_download_is_named_by_the_accounts_institution_and_last_four_digits(self):
         # Every Transaction's Details row takes its Institution and Account from the summary
         for case in contract_cases():
@@ -130,6 +141,29 @@ class AdapterContractTest(unittest.TestCase):
                 self.assertTrue(case.adapter.recognizes(case.file, case.account))
                 self.assertFalse(case.adapter.recognizes(case.file, other_account))
                 self.assertFalse(case.adapter.recognizes(FIXTURES / "not_gingham.csv", case.account))
+
+
+class NoBalanceTest(unittest.TestCase):
+    def test_a_download_without_a_balance_has_a_blank_as_of_date_never_an_estimate(self):
+        def no_balance(path, force_reprocess=False):
+            return gemini_statement(path).model_copy(update={"balance": None})
+        account = DownloadAccount(adapter="statement", institution="First Platypus Bank", last4="1357", kind="liability")
+        summary = StatementAdapter(parse=no_balance).parse(Path("input/platypus-2026-10.pdf"), account, WINDOW).summary
+        self.assertEqual((summary.balance, summary.balance_as_of), (None, None))
+
+
+class StatementFetchTest(unittest.TestCase):
+    ACCOUNT = DownloadAccount(adapter="statement", institution="First Platypus Bank", last4="1357", kind="liability")
+
+    def test_an_assisted_statement_closes_on_or_after_the_windows_end(self):
+        fetch = StatementAdapter(parse=gemini_statement).fetch(WINDOW, self.ACCOUNT)
+        self.assertEqual(fetch.instructions, "Download the Statement PDF that closes on or after 2026-10-19")
+
+    def test_a_balance_only_account_asks_for_its_latest_statement(self):
+        # A closed card may have no Statement that closes in the window
+        balance_only = self.ACCOUNT.model_copy(update={"balance_only": True})
+        fetch = StatementAdapter(parse=gemini_statement).fetch(WINDOW, balance_only)
+        self.assertEqual(fetch.instructions, "Download its latest Statement PDF; only its Balance is used")
 
 
 if __name__ == "__main__":

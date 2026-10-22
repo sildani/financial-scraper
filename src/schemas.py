@@ -90,6 +90,7 @@ class AccountSummary(BaseModel):
     transactions: List[ParsedTransaction] = Field(description="List of all transactions found in the statement")
     # Set by the Export, not read from a Statement, so it stays out of Gemini's output schema
     coverage: SkipJsonSchema[Optional[str]] = None  # The Account's Coverage, e.g. '2026-09-17 to 2026-10-10'; None when it has none
+    balance_as_of: SkipJsonSchema[Optional[date]] = None  # The date the Balance is as of; None when there's no Balance
 # --- Plaid Models ---
 
 class PlaidAccountBalances(BaseModel):

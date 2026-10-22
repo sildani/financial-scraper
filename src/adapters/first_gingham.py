@@ -14,7 +14,7 @@ from src.schemas import SpendingCategory, Transaction, category_spend_and_income
 #   First Gingham Credit Union
 #   Account ending,4321
 #   From,2026-09-15,To,2026-10-12
-#   Balance,-812.40                         (optional)
+#   Balance,-812.40                         (optional, as of To)
 #   Date,Description,Category,Amount,Status
 #   2026-09-20,PINECONE MARKET #12,Groceries,-60.00,Posted
 #
@@ -39,7 +39,7 @@ CATEGORY_MAPPING = {
 class FirstGinghamAdapter:
     institution = "First Gingham Credit Union"
 
-    def fetch(self, window: ExportWindow) -> Fetch:
+    def fetch(self, window: ExportWindow, account: DownloadAccount) -> Fetch:
         return Fetch(
             url="https://online.firstgingham.example/accounts/export",
             instructions=f"Choose CSV, {window.start.isoformat()} to {window.end.isoformat()}",
