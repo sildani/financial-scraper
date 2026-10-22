@@ -81,7 +81,7 @@ Money in from outside your Accounts (wages, deposits). Reported separately and n
 The date range of Transactions an Export covers. Defaults to today and the 30 days before it, both ends inclusive (31 days), and can be overridden per run. It applies to every Account, whatever its Source: a Download's Transactions outside it are dropped.
 
 **Balance**:
-An Account's balance, for any Account kind, with the date it is as of: the time of the Export for Plaid, or the close of the Statement it came from. Blank when a Download doesn't provide one.
+An Account's balance, for any Account kind, with the date it is as of: the time of the Export for Plaid, or the last date its Download's file spans, which for a Statement is its close. Blank when a Download doesn't provide one.
 
 **Amount due**:
 What a Liability owes at the end of a Statement, with its due date. Only Statements provide it.

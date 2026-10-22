@@ -34,7 +34,10 @@ class StatementAdapter:
             raise parsed
         return parsed
 
-    def fetch(self, window: ExportWindow) -> Fetch:
+    def fetch(self, window: ExportWindow, account: DownloadAccount) -> Fetch:
+        if account.balance_only:
+            # A closed card may have no Statement that closes in the window, and only the Balance is used
+            return Fetch(url=None, instructions="Download its latest Statement PDF; only its Balance is used")
         return Fetch(url=None, instructions=f"Download the Statement PDF that closes on or after {window.end.isoformat()}")
 
     def recognizes(self, file: Path, account: DownloadAccount) -> bool:

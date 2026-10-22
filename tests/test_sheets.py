@@ -10,7 +10,7 @@ from src.plaid_transformer import summarize_link
 from src.schemas import AccountSummary, SpendingCategory, Transaction
 from src.sheets import export_to_sheet
 from tests.test_analysis import sandbox_gingham
-from tests.test_plaid_transformer import NO_MOVEMENTS, WINDOW
+from tests.test_plaid_transformer import EXPORTED_ON, NO_MOVEMENTS, WINDOW
 
 
 class FakeWorksheet:
@@ -34,7 +34,7 @@ class FakeSpreadsheet:
 
 
 def gingham_summaries():
-    return summarize_link(sandbox_gingham(), WINDOW, NO_MOVEMENTS)
+    return summarize_link(sandbox_gingham(), WINDOW, NO_MOVEMENTS, EXPORTED_ON)
 
 
 def transaction(day, description, merchant, amount, category, spend=None, income=None):
@@ -75,7 +75,7 @@ def two_link_summaries():
     """A card at one Institution and checking at another, as Plaid summarizes them."""
     card = AccountSummary(
         institution="First Gingham Credit Union", account_name="Credit card (9496)", period="2026-09-17 to 2026-10-17",
-        coverage="2026-09-17 to 2026-10-17", account_kind="liability", balance=1250.0, transactions=[
+        coverage="2026-09-17 to 2026-10-17", account_kind="liability", balance=1250.0, balance_as_of=EXPORTED_ON, transactions=[
             transaction(1, "PINECONE MARKET #12", "Pinecone Market", 60.0, SpendingCategory.GROCERIES, spend=60.0),
             transaction(3, "BEAN COUNTER COFFEE", "Bean Counter Coffee", 5.0, SpendingCategory.RESTAURANTS_FAST_FOOD, spend=5.0),
             transaction(5, "PAYMENT THANK YOU", "Payment", -500.0, SpendingCategory.PAYMENTS_CREDITS),
@@ -84,7 +84,7 @@ def two_link_summaries():
     )
     checking = AccountSummary(
         institution="First Platypus Bank", account_name="Checking (7829)", period="2026-09-17 to 2026-10-17",
-        coverage="2026-09-17 to 2026-10-17", account_kind="deposit", balance=3000.0, transactions=[
+        coverage="2026-09-17 to 2026-10-17", account_kind="deposit", balance=3000.0, balance_as_of=EXPORTED_ON, transactions=[
             transaction(2, "THISTLE GROCERY", "Thistle Grocery", -85.0, SpendingCategory.GROCERIES, spend=85.0),
             transaction(4, "PAYMENT TO FIRST GINGHAM CARD", "Card payment", -500.0, SpendingCategory.PAYMENTS_CREDITS),
             transaction(8, "WOMBAT CARD E-PAYMENT", "Card payment", -150.0, SpendingCategory.PAYMENTS_CREDITS),
@@ -113,9 +113,9 @@ TWO_LINK_MOVEMENTS = LinkedMovements(
 )
 
 SUMMARY_ROWS = [
-    ["Institution", "Account Name", "Period", "Coverage", "Balance", "Amount Due", "Due Date", "Interest Charged", "Transaction Count"],
-    ["First Gingham Credit Union", "Credit card (9496)", "2026-09-17 to 2026-10-17", "2026-09-17 to 2026-10-17", 1250.0, None, None, 0.0, 4],
-    ["First Platypus Bank", "Checking (7829)", "2026-09-17 to 2026-10-17", "2026-09-17 to 2026-10-17", 3000.0, None, None, 0.0, 4],
+    ["Institution", "Account Name", "Period", "Coverage", "Balance", "Balance As Of", "Amount Due", "Due Date", "Interest Charged", "Transaction Count"],
+    ["First Gingham Credit Union", "Credit card (9496)", "2026-09-17 to 2026-10-17", "2026-09-17 to 2026-10-17", 1250.0, "2026-10-21", None, None, 0.0, 4],
+    ["First Platypus Bank", "Checking (7829)", "2026-09-17 to 2026-10-17", "2026-09-17 to 2026-10-17", 3000.0, "2026-10-21", None, None, 0.0, 4],
 ]
 
 DETAILS_ROWS = [

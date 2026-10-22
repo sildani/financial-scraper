@@ -3,7 +3,13 @@ from datetime import date
 
 from src.linked_movements import pair_linked_movements
 from src.plaid_transformer import summarize_link
-from tests.test_plaid_transformer import WINDOW, account, link_response, transaction
+from tests.test_plaid_transformer import (
+    EXPORTED_ON,
+    WINDOW,
+    account,
+    link_response,
+    transaction,
+)
 
 
 def pfc(detailed: str) -> dict:
@@ -33,7 +39,7 @@ def categories(*responses):
     return {
         item.description: item.category.value
         for response in responses
-        for summary in summarize_link(response, WINDOW, movements)
+        for summary in summarize_link(response, WINDOW, movements, EXPORTED_ON)
         for item in summary.transactions
     }
 
@@ -181,7 +187,7 @@ class AccountKindTest(unittest.TestCase):
         brokerage = account(account_id="acc-brokerage", name="Plaid Brokerage", mask="3333", type="investment", subtype="brokerage")
         response = link_response([brokerage], [side("TRANSFER FROM JANE", "acc-brokerage", -40.00, "TRANSFER_IN_OTHER_TRANSFER_IN")])
         movements = pair_linked_movements([response])
-        summary = summarize_link(response, WINDOW, movements)[0]
+        summary = summarize_link(response, WINDOW, movements, EXPORTED_ON)[0]
         self.assertEqual(flagged(movements), [])
         self.assertEqual((summary.account_kind, summary.transactions[0].amount), ("deposit", 40.00))
 

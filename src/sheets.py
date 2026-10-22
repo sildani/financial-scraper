@@ -51,7 +51,7 @@ def export_to_sheet(summaries: list[AccountSummary], movements: LinkedMovements 
     names = partial_export_names(missing, short)
     banner = [[f"INCOMPLETE: {names}"]] if names else []
     tabs = {
-        "Summary": Tab(summary_rows(summaries, banner), size=(100, 10)),
+        "Summary": Tab(summary_rows(summaries, banner), size=(100, 11)),
         "Details": Tab(details_rows(summaries), size=(2000, 10)),
         "Analysis": Tab(analysis_rows(summaries, banner), size=(500, 10)),
     }
@@ -94,8 +94,8 @@ def write_tabs(spreadsheet: Spreadsheet, tabs: dict[str, Tab]) -> dict[str, str]
 def summary_rows(summaries: list[AccountSummary], banner: list[list]) -> list[list]:
     return [
         *banner,
-        ["Institution", "Account Name", "Period", "Coverage", "Balance", "Amount Due", "Due Date", "Interest Charged", "Transaction Count"],
-        *([s.institution, s.account_name, s.period, s.coverage or "", s.balance, s.amount_due, s.due_date, s.interest_charged, len(s.transactions)] for s in summaries),
+        ["Institution", "Account Name", "Period", "Coverage", "Balance", "Balance As Of", "Amount Due", "Due Date", "Interest Charged", "Transaction Count"],
+        *([s.institution, s.account_name, s.period, s.coverage or "", s.balance, s.balance_as_of.isoformat() if s.balance_as_of else "", s.amount_due, s.due_date, s.interest_charged, len(s.transactions)] for s in summaries),
     ]
 
 

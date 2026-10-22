@@ -23,7 +23,7 @@ class FakeAdapter:
     def __init__(self, url: str | None = "https://online.firsttartan.example/export"):
         self.url, self.parsed = url, []
 
-    def fetch(self, window):
+    def fetch(self, window, account):
         return Fetch(url=self.url, instructions=f"Choose CSV, {window.start} to {window.end}")
 
     def recognizes(self, file, account):

@@ -8,6 +8,7 @@ from src.schemas import PlaidAccount, PlaidTransaction, SpendingCategory
 
 NO_MOVEMENTS = LinkedMovements(paired=[], unpaired=[])
 WINDOW = ExportWindow(start=date(2026, 9, 17), end=date(2026, 10, 17))
+EXPORTED_ON = date(2026, 10, 21)  # After WINDOW ends, as for an Export with --until in the past
 
 
 def account(**overrides) -> PlaidAccount:
@@ -36,12 +37,12 @@ def transaction(name: str, **overrides) -> PlaidTransaction:
 
 
 def export(transactions, **account_overrides):
-    summary = transform_plaid_transactions(transactions, account(**account_overrides), WINDOW, "First Gingham Credit Union")
+    summary = transform_plaid_transactions(transactions, account(**account_overrides), WINDOW, "First Gingham Credit Union", EXPORTED_ON)
     return [item.description for item in summary.transactions]
 
 
 def displayed_amounts(transactions, **account_overrides):
-    summary = transform_plaid_transactions(transactions, account(**account_overrides), WINDOW, "First Gingham Credit Union")
+    summary = transform_plaid_transactions(transactions, account(**account_overrides), WINDOW, "First Gingham Credit Union", EXPORTED_ON)
     return {item.description: item.amount for item in summary.transactions}
 
 
@@ -85,7 +86,7 @@ class DisplayedAmountTest(unittest.TestCase):
 def category_for(plaid_detailed: str | None, **overrides) -> SpendingCategory:
     pfc = {"primary": plaid_detailed.split("_")[0], "detailed": plaid_detailed} if plaid_detailed else None
     tx = transaction("Merchant", personal_finance_category=pfc, **overrides)
-    summary = transform_plaid_transactions([tx], account(), WINDOW, "First Gingham Credit Union")
+    summary = transform_plaid_transactions([tx], account(), WINDOW, "First Gingham Credit Union", EXPORTED_ON)
     return summary.transactions[0].category
 
 
@@ -160,7 +161,7 @@ class LinkSummaryTest(unittest.TestCase):
         savings = account(account_id="acc-savings", name="Plaid Saving", mask="1111", type="depository", subtype="savings")
         summaries = summarize_link(
             link_response([checking, savings], [transaction("Thistle Grocery", account_id="acc-checking")]),
-            WINDOW, NO_MOVEMENTS,
+            WINDOW, NO_MOVEMENTS, EXPORTED_ON,
         )
         self.assertEqual(
             [(s.account_name, len(s.transactions)) for s in summaries],
@@ -168,23 +169,28 @@ class LinkSummaryTest(unittest.TestCase):
         )
 
     def test_institution_is_the_links_institution(self):
-        summaries = summarize_link(link_response([account()], [], institution_name="First Gingham Credit Union"), WINDOW, NO_MOVEMENTS)
+        summaries = summarize_link(link_response([account()], [], institution_name="First Gingham Credit Union"), WINDOW, NO_MOVEMENTS, EXPORTED_ON)
         self.assertEqual(summaries[0].institution, "First Gingham Credit Union")
 
     def test_a_link_without_an_institution_name_or_id_is_named_by_its_item_id(self):
         # Plaid documents both as nullable
         response = {**link_response([account()], []), "item": {"item_id": "item-1", "institution_id": None, "institution_name": None}}
-        summaries = summarize_link(response, WINDOW, NO_MOVEMENTS)
+        summaries = summarize_link(response, WINDOW, NO_MOVEMENTS, EXPORTED_ON)
         self.assertEqual(summaries[0].institution, "item-1")
 
     def test_every_account_shows_its_balance(self):
         dormant_savings = account(account_id="acc-savings", balances={"current": 5000.00, "iso_currency_code": "USD"}, type="depository", subtype="savings")
         card = account(account_id="acc-card", balances={"current": 1250.00, "iso_currency_code": "USD"})
-        summaries = summarize_link(link_response([dormant_savings, card], []), WINDOW, NO_MOVEMENTS)
+        summaries = summarize_link(link_response([dormant_savings, card], []), WINDOW, NO_MOVEMENTS, EXPORTED_ON)
         self.assertEqual([s.balance for s in summaries], [5000.00, 1250.00])
 
+    def test_every_balance_is_as_of_the_export_date_even_when_the_window_ends_earlier(self):
+        savings = account(account_id="acc-savings", type="depository", subtype="savings")
+        summaries = summarize_link(link_response([savings, account(account_id="acc-card")], []), WINDOW, NO_MOVEMENTS, EXPORTED_ON)
+        self.assertEqual([s.balance_as_of for s in summaries], [EXPORTED_ON, EXPORTED_ON])
+
     def test_amount_due_only_comes_from_statements(self):
-        summary = summarize_link(link_response([account()], []), WINDOW, NO_MOVEMENTS)[0]
+        summary = summarize_link(link_response([account()], []), WINDOW, NO_MOVEMENTS, EXPORTED_ON)[0]
         self.assertEqual((summary.amount_due, summary.due_date), (None, None))
 
 

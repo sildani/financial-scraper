@@ -36,6 +36,10 @@ class Download(BaseModel):
     coverage: Optional[Coverage]  # None when the file spans none of the window
     covered_to: Optional[date] = None  # The file's last date when it ends before the window does, which makes a Partial Export
 
+    def balance_only(self) -> "Download":
+        """The Download as a Balance-only Account takes it: its Balance and no Transactions, and Coverage doesn't apply, however old the file."""
+        return Download(summary=self.summary.model_copy(update={"transactions": [], "coverage": None}), coverage=None)
+
 
 class Adapter(Watched, Protocol):
     """Fetches and parses one vendor's Downloads."""
@@ -49,8 +53,9 @@ class Adapter(Watched, Protocol):
 def download(account: DownloadAccount, span: Coverage, transactions: List[Transaction], window: ExportWindow, balance: Optional[float] = None, **statement) -> Download:
     """
     A Download Account's file as the Export takes it: named by the Account, never by the file, with only the
-    window's Transactions and the file's span clipped to the window as its Coverage. statement holds what
-    only a Statement provides, such as its own period and Amount due.
+    window's Transactions and the file's span clipped to the window as its Coverage. Its Balance is as of the
+    file's last date, before clipping. statement holds what only a Statement provides, such as its own period
+    and Amount due.
     """
     start, end = max(span.start, window.start), min(span.end, window.end)
     coverage = Coverage(start=start, end=end) if start <= end else None
@@ -61,6 +66,7 @@ def download(account: DownloadAccount, span: Coverage, transactions: List[Transa
         "coverage": coverage.label if coverage else None,
         "account_kind": account.kind,
         "balance": balance,
+        "balance_as_of": span.end if balance is not None else None,
         "transactions": [tx for tx in transactions if window.start <= date.fromisoformat(tx.transaction_date) <= window.end],
         **statement,
     })
@@ -79,7 +85,7 @@ def fetch_downloads(accounts: List[DownloadAccount], files: List[Path], window: 
     Parses each Download Account's file: the one among files its adapter recognizes or, failing that, an
     assisted Download through assist. An Account with no such file, or whose file can't be parsed, is missing
     instead of failing the run. An Account also among on_links, as plaid_transformer.accounts_on_links gives
-    them, is skipped.
+    them, is skipped. A Balance-only Account takes only its file's Balance, and is missing when it has none.
     """
     downloads, missing, short, used = [], [], [], set()
     for account in accounts:
@@ -115,6 +121,14 @@ def fetch_downloads(accounts: List[DownloadAccount], files: List[Path], window: 
         if download is None:
             missing.append(account)
             print(f"   ✗ {account.label}: couldn't process {file.name}: {failure}{moved}")
+            continue
+        if account.balance_only:
+            if download.summary.balance is None:
+                missing.append(account)
+                print(f"   ✗ {account.label}: {file.name} gives no Balance{moved}")
+                continue
+            downloads.append(download.balance_only())
+            print(f"   ✓ {account.label}: Balance as of {download.summary.balance_as_of} from {file.name}{moved}")
             continue
         downloads.append(download)
         print(f"   ✓ {account.label}: {len(download.summary.transactions)} transactions from {file.name}{moved}")

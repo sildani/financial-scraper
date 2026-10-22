@@ -25,7 +25,7 @@ class Fetch(BaseModel):
 
 
 class Fetches(Protocol):
-    def fetch(self, window: ExportWindow) -> Fetch: ...
+    def fetch(self, window: ExportWindow, account: DownloadAccount) -> Fetch: ...
 
 
 class Recognizes(Protocol):
@@ -87,7 +87,7 @@ class Assist:
 
 def watch_downloads(account: DownloadAccount, adapter: Watched, window: ExportWindow, assist: Assist) -> Optional[Path]:
     """Opens account's page and waits for a file its adapter recognizes to land in the downloads folder."""
-    fetch = adapter.fetch(window)
+    fetch = adapter.fetch(window, account)
     # Only a file that lands after the page opens can be this Download
     before = set(assist.downloads_dir.iterdir())
     print(f"\n--- Download {account.label} ---")

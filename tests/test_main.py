@@ -14,7 +14,7 @@ from src.plaid_client import FailedLink, RelinkCheck
 from src.schemas import SpendingCategory, Transaction
 from tests.test_assisted_downloads import START, FakeUser, tartan
 from tests.test_plaid_client import FakeResponse, plaid_error
-from tests.test_plaid_transformer import WINDOW, account, link_response
+from tests.test_plaid_transformer import EXPORTED_ON, WINDOW, account, link_response
 from tests.test_sheets import FakeSpreadsheet
 
 DAY_S = 24 * 60 * 60
@@ -96,13 +96,14 @@ class PlaidPartialExportTest(unittest.TestCase):
 class FakeAdapter:
     """A vendor's adapter for First Tartan Bank: a file belongs to an Account when its name holds the Account's
     last four digits, and parsing gives one 20.00 Groceries purchase, or raises for a file named in failing.
-    A file spans the whole Export window unless spans gives its (start, end) by name, and its page is url."""
+    A file spans the whole Export window unless spans gives its (start, end) by name, and its page is url.
+    Its Balance is 500.00, or None for a file named in no_balance."""
     institution = "First Tartan Bank"
 
-    def __init__(self, failing=(), spans=None, url=None):
-        self.failing, self.spans, self.url, self.parsed = failing, spans or {}, url, []
+    def __init__(self, failing=(), spans=None, url=None, no_balance=()):
+        self.failing, self.spans, self.url, self.no_balance, self.parsed = failing, spans or {}, url, no_balance, []
 
-    def fetch(self, window):
+    def fetch(self, window, account):
         return Fetch(url=self.url, instructions="Download it")
 
     def recognizes(self, file, account):
@@ -117,7 +118,7 @@ class FakeAdapter:
             amount=20.00, category=SpendingCategory.GROCERIES, spend_amount=20.00,
         )
         start, end = self.spans.get(file.name, (window.start, window.end))
-        return download(account, Coverage(start=start, end=end), [purchase], window, 500.00)
+        return download(account, Coverage(start=start, end=end), [purchase], window, None if file.name in self.no_balance else 500.00)
 
 
 def export(accounts, input_files, adapter=None, tokens=None, client=None, assist=None):
@@ -127,7 +128,7 @@ def export(accounts, input_files, adapter=None, tokens=None, client=None, assist
         result = run_export(
             tokens or {}, accounts, WINDOW, [Path(f) for f in input_files], adapters={"fake": adapter or FakeAdapter()},
             spreadsheet=spreadsheet, client=client or FakeLinksClient(failing={}, institutions={"access-platypus": "First Platypus Bank"}),
-            assist=assist,
+            assist=assist, exported_on=EXPORTED_ON,
         )
     return result, spreadsheet, stdout.getvalue().splitlines()
 
@@ -240,6 +241,51 @@ class CoverageTest(unittest.TestCase):
         incomplete = "missing First Gingham Credit Union [a1b2c3], First Tartan Bank ••3333; First Tartan Bank ••2222 covered to 2026-10-10"
         self.assertEqual(spreadsheet.tabs["Summary"].rows[0], [f"INCOMPLETE: {incomplete}"])
         self.assertIn(f"! Partial Export: {incomplete}", lines)
+
+
+class BalanceAsOfTest(unittest.TestCase):
+    def test_summary_shows_each_balance_with_its_as_of_date(self):
+        adapter = FakeAdapter(spans={"tartan-2222.csv": (date(2026, 9, 1), date(2026, 10, 30))})
+        _, spreadsheet, _ = export([tartan("2222")], ["input/tartan-2222.csv"], adapter=adapter, tokens={"item-platypus": "access-platypus"})
+        header, *rows = spreadsheet.tabs["Summary"].rows
+        self.assertEqual(header[4:6], ["Balance", "Balance As Of"])
+        # Plaid's Balance is as of the Export, and a Download's where its file ends, past the window here
+        self.assertEqual([row[4:6] for row in rows], [[1250.00, "2026-10-21"], [500.00, "2026-10-30"]])
+
+    def test_a_download_without_a_balance_shows_it_blank(self):
+        adapter = FakeAdapter(no_balance=["tartan-2222.csv"])
+        _, spreadsheet, _ = export([tartan("2222")], ["input/tartan-2222.csv"], adapter=adapter)
+        self.assertEqual(spreadsheet.tabs["Summary"].rows[1][4:6], [None, ""])
+
+
+class BalanceOnlyTest(unittest.TestCase):
+    def balance_only(self, last4):
+        return tartan(last4).model_copy(update={"balance_only": True})
+
+    def test_a_balance_only_account_shows_its_balance_and_as_of_date_with_no_transactions_or_coverage(self):
+        # A closed card's latest Statement ends long before the window
+        adapter = FakeAdapter(spans={"tartan-2222.csv": (date(2026, 7, 1), date(2026, 7, 31))})
+        result, spreadsheet, lines = export([self.balance_only("2222")], ["input/tartan-2222.csv"], adapter=adapter)
+        header, row = spreadsheet.tabs["Summary"].rows
+        self.assertEqual(header[3:6], ["Coverage", "Balance", "Balance As Of"])
+        self.assertEqual((row[3:6], row[-1]), (["", 500.00, "2026-07-31"], 0))
+        self.assertEqual(spreadsheet.tabs["Details"].rows[1:], [])
+        self.assertIn("   ✓ First Tartan Bank ••2222: Balance as of 2026-07-31 from tartan-2222.csv", lines)
+
+    def test_a_balance_only_account_never_makes_a_partial_export_for_coverage(self):
+        adapter = FakeAdapter(spans={"tartan-2222.csv": (date(2026, 7, 1), date(2026, 7, 31))})
+        result, spreadsheet, _ = export([self.balance_only("2222")], ["input/tartan-2222.csv"], adapter=adapter)
+        self.assertEqual((result.missing, result.short), ([], []))
+        self.assertEqual(spreadsheet.tabs["Summary"].rows[0][0], "Institution")
+
+    def test_a_balance_only_account_whose_balance_cant_be_obtained_makes_a_partial_export_naming_it(self):
+        adapter = FakeAdapter(no_balance=["tartan-2222.csv"])
+        result, spreadsheet, lines = export([self.balance_only("2222"), tartan("3333")], ["input/tartan-2222.csv", "input/tartan-3333.csv"], adapter=adapter)
+        missing = "missing First Tartan Bank ••2222"
+        self.assertEqual(result.missing, ["First Tartan Bank ••2222"])
+        self.assertEqual(spreadsheet.tabs["Summary"].rows[0], [f"INCOMPLETE: {missing}"])
+        self.assertEqual([row[1] for row in spreadsheet.tabs["Summary"].rows[2:]], ["••3333"])
+        self.assertIn("   ✗ First Tartan Bank ••2222: tartan-2222.csv gives no Balance", lines)
 
 
 class OverlapTest(unittest.TestCase):
