@@ -74,6 +74,33 @@ def download(account: DownloadAccount, span: Coverage, transactions: List[Transa
     return Download(summary=summary, coverage=coverage, covered_to=span.end if span.end < window.end else None)
 
 
+class UnusableDownload(Exception):
+    """A Download Account's file the Export can't take, which leaves the Account missing."""
+
+
+def usable_download(adapter: Adapter, file: Path, account: DownloadAccount, window: ExportWindow) -> Download:
+    """
+    adapter's parse of file for account. Raises UnusableDownload, saying why, when the file can't be
+    processed or, for a Balance-only Account, gives no Balance.
+    """
+    try:
+        download = adapter.parse(file, account, window)
+    except Exception as e:
+        raise UnusableDownload(f"couldn't process {file.name}: {e}") from e
+    if account.balance_only and download.summary.balance is None:
+        raise UnusableDownload(f"{file.name} gives no Balance")
+    return download
+
+
+def exported_from_plaid(account: DownloadAccount, on_links: Optional[Mapping[tuple[str, str], str]]) -> bool:
+    """Whether account is also among on_links, as plaid_transformer.accounts_on_links gives them, and says so."""
+    link = (on_links or {}).get(account_key(account.institution, account.last4))
+    if link:
+        # Every Account has one Source, and Plaid wins (ADR-0003), so its page isn't opened either
+        print(f"   ! {account.label} is also on Link {link}, so it's exported from Plaid; remove it from {DOWNLOAD_ACCOUNTS_FILE.name}")
+    return bool(link)
+
+
 class FetchedDownloads(BaseModel):
     downloads: List[Download]
     missing: List[DownloadAccount]  # Any missing Download Account makes the Export a Partial Export
@@ -92,10 +119,7 @@ def fetch_downloads(accounts: List[DownloadAccount], files: List[Path], window: 
         adapter = adapters[account.adapter]
         matches = [file for file in sorted(files) if recognized(adapter, file, account)]
         used.update(matches)
-        link = (on_links or {}).get(account_key(account.institution, account.last4))
-        if link:
-            # Every Account has one Source, and Plaid wins (ADR-0003), so its page isn't opened either
-            print(f"   ! {account.label} is also on Link {link}, so it's exported from Plaid; remove it from {DOWNLOAD_ACCOUNTS_FILE.name}")
+        if exported_from_plaid(account, on_links):
             continue
         assisted_by = None  # The Assist that fetched the file, which then archives it
         if matches:
@@ -104,7 +128,7 @@ def fetch_downloads(accounts: List[DownloadAccount], files: List[Path], window: 
             for other in others:
                 print(f"   ! {account.label}: also matched {other.name}, which is not used")
         elif assist:
-            file, assisted_by = watch_downloads(account, adapter, window, assist), assist
+            file, assisted_by = watch_downloads(account, adapter, window, assist).file, assist
             if file is None:
                 missing.append(account)
                 continue
@@ -113,20 +137,16 @@ def fetch_downloads(accounts: List[DownloadAccount], files: List[Path], window: 
             print(f"   ✗ {account.label}: no matching file in {INPUT_DIR.name}/")
             continue
         try:
-            download, failure = adapter.parse(file, account, window), None
-        except Exception as e:
+            download, failure = usable_download(adapter, file, account, window), None
+        except UnusableDownload as e:
             download, failure = None, e
         # Moved only once parsed, since the Statement adapter remembers Gemini's parse by the file's path
         moved = f", moved to {archive_download(file, account, window, assisted_by)}" if assisted_by else ""
         if download is None:
             missing.append(account)
-            print(f"   ✗ {account.label}: couldn't process {file.name}: {failure}{moved}")
+            print(f"   ✗ {account.label}: {failure}{moved}")
             continue
         if account.balance_only:
-            if download.summary.balance is None:
-                missing.append(account)
-                print(f"   ✗ {account.label}: {file.name} gives no Balance{moved}")
-                continue
             downloads.append(download.balance_only())
             print(f"   ✓ {account.label}: Balance as of {download.summary.balance_as_of} from {file.name}{moved}")
             continue
