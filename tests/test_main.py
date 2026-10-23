@@ -6,13 +6,20 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-from main import Action, parse_args, run_export, run_relink
+from main import (
+    Action,
+    parse_args,
+    reject_download_flags,
+    run_check_downloads,
+    run_export,
+    run_relink,
+)
 from src.assisted_downloads import Assist, Fetch
 from src.download_accounts import DownloadAccount
 from src.downloads import Coverage, download
 from src.plaid_client import FailedLink, RelinkCheck
 from src.schemas import SpendingCategory, Transaction
-from tests.test_assisted_downloads import START, FakeUser, tartan
+from tests.test_assisted_downloads import START, FakeUser, lands, tartan
 from tests.test_plaid_client import FakeResponse, plaid_error
 from tests.test_plaid_transformer import EXPORTED_ON, WINDOW, account, link_response
 from tests.test_sheets import FakeSpreadsheet
@@ -41,6 +48,16 @@ class ActionTest(unittest.TestCase):
     def test_relink_flag_relinks(self):
         self.assertIs(parse_args(["--relink"]).action, Action.RELINK)
 
+    def test_check_downloads_flag_checks_every_adapter_or_the_one_named(self):
+        args = parse_args(["--check-downloads"])
+        self.assertEqual((args.action, args.adapter), (Action.CHECK_DOWNLOADS, None))
+        args = parse_args(["--check-downloads", "first_gingham"])
+        self.assertEqual((args.action, args.adapter), (Action.CHECK_DOWNLOADS, "first_gingham"))
+
+    def test_skip_downloads_is_an_export(self):
+        args = parse_args(["--skip-downloads"])
+        self.assertEqual((args.action, args.skip_downloads), (Action.EXPORT, True))
+
 
 class FlagCombinationTest(unittest.TestCase):
     def test_a_run_does_one_thing(self):
@@ -51,6 +68,26 @@ class FlagCombinationTest(unittest.TestCase):
         for other_action in (["--plaid-link"], ["--relink"]):
             with self.subTest(other_action):
                 self.assertIn("-f/--force only applies to an Export", parse_error([*other_action, "-f"]))
+
+    def test_check_downloads_does_not_link_or_relink(self):
+        for other_action in (["--plaid-link"], ["--relink"]):
+            with self.subTest(other_action):
+                self.assertIn("not allowed with argument", parse_error([*other_action, "--check-downloads"]))
+
+    def test_skip_downloads_belongs_to_an_export_only(self):
+        for other_action in (["--plaid-link"], ["--relink"], ["--check-downloads"]):
+            with self.subTest(other_action):
+                self.assertIn("--skip-downloads only applies to an Export", parse_error([*other_action, "--skip-downloads"]))
+
+    def test_check_downloads_takes_its_own_window(self):
+        self.assertIn("--since and --until only apply to an Export", parse_error(["--check-downloads", "--until", "2026-10-01"]))
+
+    def test_download_flags_are_rejected_in_sandbox_where_there_are_no_download_accounts(self):
+        for flags in (["--skip-downloads"], ["--check-downloads"]):
+            with self.subTest(flags), self.assertRaisesRegex(ValueError, f"{flags[0]} only applies in Production, where Download Accounts exist"):
+                reject_download_flags(parse_args(flags), "sandbox")
+            reject_download_flags(parse_args(flags), "production")
+        reject_download_flags(parse_args([]), "sandbox")
 
     def test_export_window_belongs_to_an_export_only(self):
         self.assertIs(parse_args(["--since", "2026-01-01", "--until", "2026-03-31"]).action, Action.EXPORT)
@@ -121,14 +158,14 @@ class FakeAdapter:
         return download(account, Coverage(start=start, end=end), [purchase], window, None if file.name in self.no_balance else 500.00)
 
 
-def export(accounts, input_files, adapter=None, tokens=None, client=None, assist=None):
+def export(accounts, input_files, adapter=None, tokens=None, client=None, assist=None, skip_downloads=False):
     """run_export over WINDOW with Links in tokens (none by default) and the fake adapter; returns it, the Sheet and stdout."""
     spreadsheet, stdout = FakeSpreadsheet(), io.StringIO()
     with contextlib.redirect_stdout(stdout):
         result = run_export(
             tokens or {}, accounts, WINDOW, [Path(f) for f in input_files], adapters={"fake": adapter or FakeAdapter()},
             spreadsheet=spreadsheet, client=client or FakeLinksClient(failing={}, institutions={"access-platypus": "First Platypus Bank"}),
-            assist=assist, exported_on=EXPORTED_ON,
+            assist=assist, exported_on=EXPORTED_ON, skip_downloads=skip_downloads,
         )
     return result, spreadsheet, stdout.getvalue().splitlines()
 
@@ -324,6 +361,119 @@ class OverlapTest(unittest.TestCase):
     def test_the_same_last_four_digits_at_another_institution_is_not_an_overlap(self):
         result, spreadsheet, _ = export([tartan("9496")], ["input/tartan-9496.csv"], tokens={"item-platypus": "access-platypus"})
         self.assertEqual([row[:2] for row in spreadsheet.tabs["Summary"].rows[1:]], [["First Platypus Bank", "Credit card (9496)"], ["First Tartan Bank", "••9496"]])
+
+
+class SkipDownloadsTest(unittest.TestCase):
+    def test_skipping_downloads_makes_a_partial_export_naming_every_download_account_and_opens_no_page(self):
+        adapter = FakeAdapter(url="https://tartan.example/export")
+        with tempfile.TemporaryDirectory() as temp:
+            downloads_dir = Path(temp) / "Downloads"
+            downloads_dir.mkdir()
+            user = FakeUser(downloads_dir, [])
+            assist = Assist(downloads_dir=downloads_dir, archive_dir=Path(temp) / ".downloads", open_page=user.open_page, clock=user)
+            result, spreadsheet, lines = export(
+                [tartan("2222"), tartan("3333")], ["input/tartan-2222.csv"], adapter=adapter,
+                tokens={"item-platypus": "access-platypus"}, assist=assist, skip_downloads=True,
+            )
+        missing = "missing First Tartan Bank ••2222, First Tartan Bank ••3333"
+        self.assertEqual(result.missing, ["First Tartan Bank ••2222", "First Tartan Bank ••3333"])
+        self.assertEqual(spreadsheet.tabs["Summary"].rows[0], [f"INCOMPLETE: {missing}"])
+        self.assertEqual([row[:2] for row in spreadsheet.tabs["Summary"].rows[2:]], [["First Platypus Bank", "Credit card (9496)"]])
+        self.assertEqual((user.opened, adapter.parsed), ([], []))
+        self.assertIn("   ✗ First Tartan Bank ••2222: skipped (--skip-downloads)", lines)
+        self.assertIn(f"! Partial Export: {missing}", lines)
+
+    def test_an_account_also_on_a_link_is_not_named_missing_and_is_warned_about_as_in_any_export(self):
+        result, _, lines = export([OverlapTest.ON_PLAID], [], tokens={"item-platypus": "access-platypus"}, skip_downloads=True)
+        self.assertEqual(result.missing, [])
+        self.assertIn(
+            "   ! FIRST PLATYPUS BANK ••9496 is also on Link First Platypus Bank [item-1], so it's exported from Plaid; "
+            "remove it from download_accounts.toml", lines,
+        )
+
+
+class CheckDownloadsTest(unittest.TestCase):
+    TODAY = date(2026, 10, 21)
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.downloads_dir, self.archive_dir = Path(temp.name) / "Downloads", Path(temp.name) / ".downloads"
+        self.downloads_dir.mkdir()
+
+    def check(self, accounts, plans, adapter=None, only=None):
+        """run_check_downloads with the fake adapter and you doing each of plans in turn; returns it, you and stdout."""
+        user, stdout = FakeUser(self.downloads_dir, plans), io.StringIO()
+        assist = Assist(downloads_dir=self.downloads_dir, archive_dir=self.archive_dir, open_page=user.open_page, clock=user)
+        with contextlib.redirect_stdout(stdout):
+            result = run_check_downloads(accounts, {"fake": adapter or FakeAdapter(url="https://tartan.example/export")}, self.TODAY, assist, only=only)
+        return result, user, stdout.getvalue().splitlines()
+
+    def test_a_file_that_lands_is_reported_with_every_date_it_spans_and_left_where_it_is(self):
+        # Past both ends of the check's window, which mustn't clip it
+        adapter = FakeAdapter(url="https://tartan.example/export", spans={"tartan-2222.csv": (date(2026, 8, 1), date(2026, 10, 30))})
+        result, user, lines = self.check([tartan("2222")], [[(10, lands("tartan-2222.csv", "Date,Amount\n"))]], adapter=adapter)
+        self.assertEqual(result.window.model_dump(), {"start": date(2026, 10, 14), "end": self.TODAY})
+        [account] = result.accounts
+        self.assertEqual(
+            (account.account, account.file, account.span, account.balance_as_of),
+            ("First Tartan Bank ••2222", "tartan-2222.csv", Coverage(start=date(2026, 8, 1), end=date(2026, 10, 30)), date(2026, 10, 30)),
+        )
+        self.assertTrue(result.passed)
+        self.assertEqual(user.opened, ["https://tartan.example/export"])
+        self.assertTrue((self.downloads_dir / "tartan-2222.csv").exists())
+        self.assertFalse(self.archive_dir.exists())
+        self.assertIn("   ✓ First Tartan Bank ••2222: tartan-2222.csv spans 2026-08-01 to 2026-10-30, Balance as of 2026-10-30", lines)
+
+    def test_an_account_whose_file_never_arrives_fails_the_check_naming_any_file_that_landed_unrecognized(self):
+        result, _, _ = self.check([tartan("2222"), tartan("3333")], [
+            [(10, lands("tartan-9999.csv", "Date,Amount\n"))],
+            [(10, lands("tartan-3333.csv", "Date,Amount\n"))],
+        ])
+        self.assertEqual(
+            [(a.account, a.file, a.unrecognized) for a in result.accounts],
+            [("First Tartan Bank ••2222", None, ["tartan-9999.csv"]), ("First Tartan Bank ••3333", "tartan-3333.csv", [])],
+        )
+        self.assertFalse(result.passed)
+
+    def test_a_recognized_file_that_cant_be_processed_fails_the_check_and_the_next_account_is_still_checked(self):
+        adapter = FakeAdapter(url="https://tartan.example/export", failing=["tartan-2222.csv"])
+        result, _, lines = self.check([tartan("2222"), tartan("3333")], [
+            [(10, lands("tartan-2222.csv", "Date,Amount\n"))],
+            [(10, lands("tartan-3333.csv", "Date,Amount\n"))],
+        ], adapter=adapter)
+        self.assertEqual(
+            [(a.file, a.failure, a.span is None) for a in result.accounts],
+            [("tartan-2222.csv", "couldn't process tartan-2222.csv: no header row", True), ("tartan-3333.csv", None, False)],
+        )
+        self.assertFalse(result.passed)
+        self.assertIn("   ✗ First Tartan Bank ••2222: couldn't process tartan-2222.csv: no header row", lines)
+
+    def test_a_balance_only_account_whose_file_gives_no_balance_fails_the_check(self):
+        adapter = FakeAdapter(url="https://tartan.example/export", no_balance=["tartan-2222.csv"])
+        balance_only = tartan("2222").model_copy(update={"balance_only": True})
+        result, _, lines = self.check([balance_only], [[(10, lands("tartan-2222.csv", "Date,Amount\n"))]], adapter=adapter)
+        self.assertEqual(result.accounts[0].failure, "tartan-2222.csv gives no Balance")
+        self.assertFalse(result.passed)
+        self.assertIn("   ✗ First Tartan Bank ••2222: tartan-2222.csv gives no Balance", lines)
+
+    def test_naming_an_adapter_checks_only_its_download_accounts(self):
+        gingham = DownloadAccount(adapter="gingham", institution="First Gingham Credit Union", last4="4321", kind="deposit")
+        user, stdout = FakeUser(self.downloads_dir, [[(10, lands("gingham-4321.csv", "Date,Amount\n"))]]), io.StringIO()
+        assist = Assist(downloads_dir=self.downloads_dir, archive_dir=self.archive_dir, open_page=user.open_page, clock=user)
+        adapters = {"fake": FakeAdapter(url="https://tartan.example/export"), "gingham": FakeAdapter(url="https://gingham.example/export")}
+        with contextlib.redirect_stdout(stdout):
+            result = run_check_downloads([tartan("2222"), gingham], adapters, self.TODAY, assist, only="gingham")
+        self.assertEqual([a.account for a in result.accounts], ["First Gingham Credit Union ••4321"])
+        self.assertEqual(user.opened, ["https://gingham.example/export"])
+
+    def test_an_adapter_no_download_account_uses_is_rejected_before_any_page_opens(self):
+        with self.assertRaisesRegex(ValueError, r"^no Download Account uses adapter 'gingham'; use one of: fake$"):
+            self.check([tartan("2222"), tartan("3333")], [], only="gingham")
+
+    def test_with_no_download_accounts_there_is_nothing_to_check(self):
+        with self.assertRaisesRegex(ValueError, r"^no Download Accounts to check; list them in download_accounts.toml$"):
+            self.check([], [])
 
 
 GINGHAM = FailedLink(item_id="item-gingham", institution="First Gingham Credit Union", error_code="ITEM_LOGIN_REQUIRED")

@@ -5,7 +5,7 @@ import time
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Protocol
+from typing import Callable, List, Optional, Protocol
 
 from pydantic import BaseModel
 
@@ -85,7 +85,13 @@ class Assist:
     clock: Clock = TerminalClock()
 
 
-def watch_downloads(account: DownloadAccount, adapter: Watched, window: ExportWindow, assist: Assist) -> Optional[Path]:
+class Watch(BaseModel):
+    """What landed in the downloads folder while waiting for one Account's Download."""
+    file: Optional[Path] = None  # The file its adapter recognized; None when none did in time
+    unrecognized: List[str] = []  # Every other file that landed, by name
+
+
+def watch_downloads(account: DownloadAccount, adapter: Watched, window: ExportWindow, assist: Assist) -> Watch:
     """Opens account's page and waits for a file its adapter recognizes to land in the downloads folder."""
     fetch = adapter.fetch(window, account)
     # Only a file that lands after the page opens can be this Download
@@ -101,6 +107,7 @@ def watch_downloads(account: DownloadAccount, adapter: Watched, window: ExportWi
 
     # Each file's size and modification time when it was last looked at: one still being written is looked at again
     looked_at: dict[Path, tuple[int, float]] = {}
+    unrecognized: List[str] = []
     deadline = assist.clock.time() + WAIT_S
     while True:
         for file in sorted(set(assist.downloads_dir.iterdir()) - before):
@@ -111,15 +118,20 @@ def watch_downloads(account: DownloadAccount, adapter: Watched, window: ExportWi
             stat = file.stat()
             if not stat.st_size or looked_at.get(file) == (stat.st_size, stat.st_mtime):
                 continue
+            # A file rejected while still being written is looked at again, but named only once
+            named = file in looked_at
             looked_at[file] = (stat.st_size, stat.st_mtime)
             if recognized(adapter, file, account):
-                return file
+                return Watch(file=file, unrecognized=[name for name in unrecognized if name != file.name])
+            if not named:
+                unrecognized.append(file.name)
+                print(f"   ! {account.label}: {file.name} landed but isn't recognized")
         if assist.clock.time() >= deadline:
             print(f"   ✗ {account.label}: no file arrived in {WAIT_S // 60} minutes")
-            return None
+            return Watch(unrecognized=unrecognized)
         if assist.clock.wait(POLL_S):
             print(f"   ✗ {account.label}: skipped")
-            return None
+            return Watch(unrecognized=unrecognized)
 
 
 def prune_archive(assist: Assist):

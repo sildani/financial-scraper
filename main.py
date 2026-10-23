@@ -2,16 +2,16 @@ import argparse
 import sys
 import time
 import webbrowser
-from datetime import date
+from datetime import date, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Callable, List
+from typing import Callable, List, Mapping
 
 import plaid
 from pydantic import BaseModel
 
 from src.adapters import adapters as all_adapters
-from src.assisted_downloads import Assist, prune_archive
+from src.assisted_downloads import Assist, prune_archive, watch_downloads
 from src.config import (
     DOWNLOAD_ACCOUNTS_FILE,
     DOWNLOAD_ARCHIVE_DIR,
@@ -19,7 +19,15 @@ from src.config import (
     current_plaid_environment,
 )
 from src.download_accounts import DownloadAccount, load_download_accounts
-from src.downloads import Adapter, fetch_downloads
+from src.downloads import (
+    Adapter,
+    Coverage,
+    FetchedDownloads,
+    UnusableDownload,
+    exported_from_plaid,
+    fetch_downloads,
+    usable_download,
+)
 from src.export_window import ExportWindow, export_window, history_warning
 from src.linked_movements import LinkedMovements, pair_linked_movements
 from src.plaid_client import (
@@ -43,6 +51,8 @@ from src.plaid_client import (
 from src.plaid_transformer import accounts_on_links, summarize_link
 from src.schemas import AccountSummary, link_label
 from src.sheets import Spreadsheet, export_to_sheet, partial_export_names
+
+CHECK_DAYS = 7  # A short window is enough to see whether a file arrives and is recognized
 
 
 def run_hosted_link[T](hosted_link_url: str, poll: Callable[[], T | None]):
@@ -77,11 +87,12 @@ class Export(BaseModel):
     short: List[str] = []  # Each Download Account whose Coverage stops short, as output names it
     tabs: List[str] = []  # Empty when no Export was written
 
-def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: ExportWindow, input_files: List[Path], adapters: dict[str, Adapter] | None = None, spreadsheet: Spreadsheet | None = None, client: LinksClient | None = None, assist: Assist | None = None, exported_on: date | None = None) -> Export:
+def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: ExportWindow, input_files: List[Path], adapters: dict[str, Adapter] | None = None, spreadsheet: Spreadsheet | None = None, client: LinksClient | None = None, assist: Assist | None = None, exported_on: date | None = None, skip_downloads: bool = False) -> Export:
     """
     One Export over window of every Account on every Link in tokens, then every Download Account
     from its file among input_files or, failing that, through assist, written to the Environment's Sheet.
     exported_on is the date of the Export, today by default, which each Plaid Balance is as of.
+    skip_downloads makes every Download Account not also on a Link missing, without looking for its file.
     """
     if assist:
         prune_archive(assist)
@@ -106,9 +117,17 @@ def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: E
                 summaries.append(summary)
                 print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
 
-    if download_accounts:
-        print(f"\nFetching Downloads (a matching file in {INPUT_DIR.name}/ is used first)...")
-    downloads = fetch_downloads(download_accounts, input_files, window, adapters or all_adapters(), assist=assist, on_links=accounts_on_links(responses))
+    on_links = accounts_on_links(responses)
+    if skip_downloads:
+        # Even input/ isn't looked at: recognizing a Statement there would call Gemini
+        skipped = [account for account in download_accounts if not exported_from_plaid(account, on_links)]
+        for account in skipped:
+            print(f"   ✗ {account.label}: skipped (--skip-downloads)")
+        downloads = FetchedDownloads(downloads=[], missing=skipped)
+    else:
+        if download_accounts:
+            print(f"\nFetching Downloads (a matching file in {INPUT_DIR.name}/ is used first)...")
+        downloads = fetch_downloads(download_accounts, input_files, window, adapters or all_adapters(), assist=assist, on_links=on_links)
     summaries += [download.summary for download in downloads.downloads]
 
     missing = [link.label for link in fetched.failed] + [account.label for account in downloads.missing]
@@ -120,6 +139,60 @@ def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: E
             print(f"\n! Partial Export: {names}")
         print("\nBatch process complete!")
     return Export(fetched=fetched, movements=movements, summaries=summaries, missing=missing, short=downloads.short, tabs=tabs)
+
+# Parsing over every date leaves a file's span unclipped
+ALL_DATES = ExportWindow(start=date.min, end=date.max)
+
+class AccountCheck(BaseModel):
+    """How one Download Account's assisted Download went in --check-downloads."""
+    account: str  # As output names it
+    file: str | None = None  # The file it recognized; None when none arrived
+    unrecognized: List[str] = []  # Every other file that landed meanwhile
+    span: Coverage | None = None  # Every date the file spans, unclipped; None when it couldn't be processed
+    balance_as_of: date | None = None
+    failure: str | None = None  # Why an Export couldn't take the file it recognized
+
+class DownloadCheck(BaseModel):
+    window: ExportWindow
+    accounts: List[AccountCheck] = []
+
+    @property
+    def passed(self) -> bool:
+        return all(account.file and not account.failure for account in self.accounts)
+
+def run_check_downloads(download_accounts: List[DownloadAccount], adapters: Mapping[str, Adapter], today: date, assist: Assist, only: str | None = None) -> DownloadCheck:
+    """
+    Runs each Download Account's assisted Download, or only those of the adapter named only, over the CHECK_DAYS
+    before today, and reports whether its file arrived and was recognized and what dates it spans. Nothing is
+    exported, and the file is left where it landed. Raises ValueError when there is nothing to check.
+    """
+    if not download_accounts:
+        raise ValueError(f"no Download Accounts to check; list them in {DOWNLOAD_ACCOUNTS_FILE.name}")
+    used = sorted({account.adapter for account in download_accounts})
+    if only and only not in used:
+        raise ValueError(f"no Download Account uses adapter '{only}'; use one of: {', '.join(used)}")
+    check = DownloadCheck(window=ExportWindow(start=today - timedelta(days=CHECK_DAYS), end=today))
+    print(f"Checking Downloads over {check.window.start} to {check.window.end}; nothing is exported, and each file is left where it lands")
+    for account in download_accounts:
+        if only and account.adapter != only:
+            continue
+        adapter = adapters[account.adapter]
+        watch = watch_downloads(account, adapter, check.window, assist)
+        file = watch.file
+        result = AccountCheck(account=account.label, file=file.name if file else None, unrecognized=watch.unrecognized)
+        check.accounts.append(result)
+        if not file:
+            continue
+        try:
+            download = usable_download(adapter, file, account, ALL_DATES)
+        except UnusableDownload as e:
+            result.failure = str(e)
+            print(f"   ✗ {account.label}: {e}")
+            continue
+        result.span, result.balance_as_of = download.coverage, download.summary.balance_as_of
+        balance = f", Balance as of {result.balance_as_of}" if result.balance_as_of else ""
+        print(f"   ✓ {account.label}: {file.name} spans {result.span.label if result.span else 'no dates'}{balance}")
+    return check
 
 def hosted_relink_session(access_token: str) -> bool:
     """Runs one Link's update mode session in hosted Link; False if it timed out."""
@@ -189,6 +262,7 @@ class Action(str, Enum):
     EXPORT = "export"  # The default: an Export of every Plaid Account and Download Account
     LINK = "link"
     RELINK = "relink"
+    CHECK_DOWNLOADS = "check-downloads"
 
 def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     """Parses the command line into args whose action is the Action the run does."""
@@ -211,6 +285,23 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Re-link every Link that needs it, in place, via Plaid Link update mode."
     )
+    action.add_argument(
+        "--check-downloads",
+        nargs="?",
+        const=True,
+        default=False,
+        metavar="ADAPTER",
+        help=(
+            "Check each Download Account's assisted Download, or only ADAPTER's, over the last "
+            f"{CHECK_DAYS} days: whether its file arrives and is recognized, and what dates it spans. "
+            "Writes no Export."
+        ),
+    )
+    parser.add_argument(
+        "--skip-downloads",
+        action="store_true",
+        help="Export only the Plaid Accounts; every Download Account is named as missing in a Partial Export."
+    )
     parser.add_argument(
         "-f", "--force",
         action="store_true",
@@ -232,15 +323,27 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
         args.action = Action.LINK
     elif args.relink:
         args.action = Action.RELINK
+    elif args.check_downloads:
+        args.action = Action.CHECK_DOWNLOADS
     else:
         args.action = Action.EXPORT
+    # The one adapter whose Download Accounts --check-downloads checks; None for all of them
+    args.adapter = args.check_downloads if isinstance(args.check_downloads, str) else None
 
     if (args.since or args.until) and args.action != Action.EXPORT:
         parser.error("--since and --until only apply to an Export")
     # The cache it bypasses only holds parsed Statements, which only an Export reads
     if args.force and args.action != Action.EXPORT:
         parser.error("-f/--force only applies to an Export")
+    if args.skip_downloads and args.action != Action.EXPORT:
+        parser.error("--skip-downloads only applies to an Export")
     return args
+
+def reject_download_flags(args: argparse.Namespace, environment: str):
+    """Raises ValueError for a flag about Download Accounts outside Production, where there are none."""
+    flag = "--skip-downloads" if args.skip_downloads else "--check-downloads" if args.action == Action.CHECK_DOWNLOADS else None
+    if flag and environment != "production":
+        raise ValueError(f"{flag} only applies in Production, where Download Accounts exist")
 
 def main():
     args = parse_args()
@@ -248,6 +351,7 @@ def main():
     # Fail before any work: every run reads or writes Environment-specific Links and Sheets
     try:
         environment = current_plaid_environment()
+        reject_download_flags(args, environment.name)
     except ValueError as e:
         sys.exit(f"Error: {e}")
     print(f"Environment: {environment.name}")
@@ -278,7 +382,6 @@ def main():
             sys.exit("Error: some Links still need re-linking")
         return
 
-    # An Export: every other action has returned
     adapters = all_adapters(force=args.force)
     try:
         download_config = load_download_accounts(DOWNLOAD_ACCOUNTS_FILE, environment.name, adapters)
@@ -286,6 +389,17 @@ def main():
         sys.exit(f"Error: {e}")
     download_accounts = download_config.accounts
     assist = Assist(downloads_dir=download_config.downloads_dir, archive_dir=DOWNLOAD_ARCHIVE_DIR)
+
+    if args.action == Action.CHECK_DOWNLOADS:
+        try:
+            check = run_check_downloads(download_accounts, adapters, date.today(), assist, only=args.adapter)
+        except ValueError as e:
+            sys.exit(f"Error: {e}")
+        if not check.passed:
+            sys.exit("Error: some Download Accounts failed the check")
+        return
+
+    # An Export: every other action has returned
     tokens = load_tokens()
     if not tokens and not download_accounts:
         sys.exit(
@@ -305,7 +419,7 @@ def main():
     if tokens:
         print("\nFetching transactions from Plaid...")
     input_files = [path for path in INPUT_DIR.glob("*") if path.is_file() and not path.name.startswith(".")]
-    if not run_export(tokens, download_accounts, window, input_files, adapters=adapters, assist=assist).summaries:
+    if not run_export(tokens, download_accounts, window, input_files, adapters=adapters, assist=assist, skip_downloads=args.skip_downloads).summaries:
         sys.exit("Error: no Link or Download Account could be fetched, so no Export was written")
 
 if __name__ == "__main__":

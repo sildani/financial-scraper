@@ -170,6 +170,15 @@ class AssistedDownloadsTest(unittest.TestCase):
         self.assertEqual(fetched.missing, [])
         self.assertTrue((self.downloads_dir / "statement.csv").exists())
 
+    def test_a_file_the_adapter_rejects_is_named_once_as_it_lands(self):
+        _, _, lines = self.fetch([tartan("2222")], [[
+            (5, lands("statement.csv", tartan_file("9999"))),
+            (5, lands("statement.csv", tartan_file("9999") + "2026-10-01,20.00\n")),
+            (10, lands("export.csv", tartan_file("2222"))),
+        ]])
+        self.assertEqual(lines.count("   ! First Tartan Bank ••2222: statement.csv landed but isn't recognized"), 1)
+        self.assertEqual(self.adapter.parsed, ["export.csv"])
+
     def test_a_matching_file_dropped_into_input_is_used_without_opening_the_page(self):
         dropped = self.downloads_dir.parent / "tartan-2222.csv"
         dropped.write_text(tartan_file("2222"))
