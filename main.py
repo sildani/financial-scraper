@@ -306,7 +306,7 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "-f", "--force",
         action="store_true",
-        help="Re-parse Statement PDFs with Gemini, bypassing the local cache."
+        help="Ask Gemini again about every Download (a Statement's parse, or another file's Categories), bypassing the local cache."
     )
     parser.add_argument(
         "--since",

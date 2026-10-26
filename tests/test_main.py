@@ -14,11 +14,13 @@ from main import (
     run_export,
     run_relink,
 )
+from src.adapters.first_gingham import FirstGinghamAdapter
 from src.assisted_downloads import Assist, Fetch
 from src.download_accounts import DownloadAccount
 from src.downloads import Coverage, download
 from src.plaid_client import FailedLink, RelinkCheck
 from src.schemas import SpendingCategory, Transaction
+from tests.test_adapter_contract import FIXTURES
 from tests.test_assisted_downloads import START, FakeUser, lands, tartan
 from tests.test_linked_movements import (
     CHECKING,
@@ -28,6 +30,7 @@ from tests.test_linked_movements import (
     pfc,
     side,
 )
+from tests.test_llm import http_error
 from tests.test_plaid_client import FakeResponse, plaid_error
 from tests.test_plaid_transformer import (
     EXPORTED_ON,
@@ -209,6 +212,14 @@ class UnifiedExportTest(unittest.TestCase):
         result, _, lines = export([tartan("2222"), tartan("3333")], ["input/tartan-2222.csv", "input/tartan-3333.csv"], adapter=adapter)
         self.assertIn("   ✗ First Tartan Bank ••3333: couldn't process tartan-3333.csv: no header row", lines)
         self.assertEqual(result.missing, ["First Tartan Bank ••3333"])
+
+    def test_a_download_whose_categories_gemini_cant_give_makes_a_partial_export_naming_its_account(self):
+        def unavailable_gemini(path, hints, account_kind, force_reprocess=False):
+            raise http_error(503)
+        card = DownloadAccount(adapter="fake", institution="First Gingham Credit Union", last4="4321", kind="liability")
+        result, _, lines = export([card], [FIXTURES / "first_gingham_card.csv"], adapter=FirstGinghamAdapter(categorize=unavailable_gemini))
+        self.assertTrue(any(line.startswith("   ✗ First Gingham Credit Union ••4321: couldn't process first_gingham_card.csv:") for line in lines), lines)
+        self.assertEqual(result.missing, ["First Gingham Credit Union ••4321"])
 
     def test_a_partial_export_names_failed_links_before_missing_download_accounts(self):
         client = FakeLinksClient(failing={"access-gingham": "ITEM_LOGIN_REQUIRED"}, institutions={"access-gingham": "First Gingham Credit Union"})

@@ -1,12 +1,19 @@
 import csv
 from datetime import date
 from pathlib import Path
+from typing import List, Protocol
 
 from src.assisted_downloads import Fetch
 from src.download_accounts import DownloadAccount
 from src.downloads import Coverage, Download, download
 from src.export_window import ExportWindow
-from src.schemas import SpendingCategory, Transaction, category_spend_and_income
+from src.llm import CategoryHint, categorize_download
+from src.schemas import (
+    AccountKind,
+    SpendingCategory,
+    Transaction,
+    category_spend_and_income,
+)
 
 # The reference adapter: a made-up Institution's CSV, parsed in code, as the worked example for vendor adapters.
 # Its file starts with a preamble, then one row per Transaction:
@@ -18,26 +25,20 @@ from src.schemas import SpendingCategory, Transaction, category_spend_and_income
 #   Date,Description,Category,Amount,Status
 #   2026-09-20,PINECONE MARKET #12,Groceries,-60.00,Posted
 #
-# Amount is negative for money out on every Account kind, and Status is Posted or Pending.
+# Amount is negative for money out on every Account kind, and Status is Posted or Pending. Its category
+# column is only a hint: Gemini assigns each Transaction its Category (GLOSSARY.md).
 HEADER = ["Date", "Description", "Category", "Amount", "Status"]
 
-# Until Categories come from Gemini, its own category column maps to ours; anything else is Other
-CATEGORY_MAPPING = {
-    "Groceries": SpendingCategory.GROCERIES,
-    "Dining": SpendingCategory.RESTAURANTS_FAST_FOOD,
-    "Gas": SpendingCategory.CAR_FUEL,
-    "Auto": SpendingCategory.CAR_MAINTENANCE,
-    "Travel": SpendingCategory.TRAVEL,
-    "Bills": SpendingCategory.UTILITIES_SUBSCRIPTIONS,
-    "Payment": SpendingCategory.PAYMENTS_CREDITS,
-    "Transfer": SpendingCategory.PAYMENTS_CREDITS,
-    "Deposit": SpendingCategory.INCOME_DEPOSITS,
-    "Loan": SpendingCategory.MORTGAGE_LOANS,
-}
+
+class Categorize(Protocol):
+    def __call__(self, path: str, hints: List[CategoryHint], account_kind: AccountKind, force_reprocess: bool = False) -> List[SpendingCategory]: ...
 
 
 class FirstGinghamAdapter:
     institution = "First Gingham Credit Union"
+
+    def __init__(self, categorize: Categorize = categorize_download, force: bool = False):
+        self._categorize, self.force = categorize, force
 
     def fetch(self, window: ExportWindow, account: DownloadAccount) -> Fetch:
         return Fetch(
@@ -61,14 +62,16 @@ class FirstGinghamAdapter:
         span = Coverage(start=date.fromisoformat(from_date), end=date.fromisoformat(to_date))
         balance = float(preamble["Balance"][0]) if "Balance" in preamble else None
 
+        # Pending activity is not a Transaction (GLOSSARY.md)
+        posted = [(tx_date, description, vendor_category, -float(amount)) for tx_date, description, vendor_category, amount, status in rows[header + 1:] if status != "Pending"]
+        # Every posted row, in the window or not, so the cached Categories hold for any window
+        categories = self._categorize(str(file), [
+            CategoryHint(description=description, vendor_category=vendor_category, is_money_out=money_out > 0)
+            for _, description, vendor_category, money_out in posted
+        ], account.kind, force_reprocess=self.force)
+
         transactions = []
-        for row in rows[header + 1:]:
-            tx_date, description, vendor_category, amount, status = row
-            # Pending activity is not a Transaction (GLOSSARY.md)
-            if status == "Pending":
-                continue
-            money_out = -float(amount)
-            category = CATEGORY_MAPPING.get(vendor_category, SpendingCategory.OTHER)
+        for (tx_date, description, _, money_out), category in zip(posted, categories, strict=True):
             spend, income = category_spend_and_income(category, money_out)
             transactions.append(Transaction(
                 transaction_date=tx_date,

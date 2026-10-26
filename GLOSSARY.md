@@ -45,7 +45,7 @@ Where your browser saves files: `downloads_dir` in the Download Account config, 
 
 **Download archive**:
 The gitignored `.downloads/` folder that each assisted Download is moved into once taken, one folder per Download Account, each file named by its Export window. Files older than 90 days are deleted at the start of each Export.
-_Avoid_: cache (that holds Gemini's parses of Statements)
+_Avoid_: cache (that holds Gemini's parses of Statements and its Categories for other Downloads)
 
 **Balance-only**:
 A Download Account that contributes a Balance and no Transactions, such as a closed card that still owes money. Coverage doesn't apply to it.
