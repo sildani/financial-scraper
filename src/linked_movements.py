@@ -66,7 +66,7 @@ def pair_linked_movements(responses: List[dict], downloads: Sequence[AccountSumm
     matches = sorted(
         (
             (paid, received) for paid in paying for received in receiving
-            if received.account_key != paid.account_key
+            if received.account_ref != paid.account_ref
             and received.side.amount == paid.side.amount
             and days_apart(received, paid) <= MAX_DAYS_APART
         ),
@@ -90,8 +90,9 @@ def pair_linked_movements(responses: List[dict], downloads: Sequence[AccountSumm
 class Candidate(BaseModel):
     side: MovementSide
     # Only tells Accounts apart, since the two sides are on different ones: (Institution, Plaid's account_id)
-    # from Plaid, (Institution, Account name) from a Download; one Source per Account keeps them apart (ADR-0003)
-    account_key: Tuple[str, str]
+    # from Plaid, (Institution, Account name) from a Download; one Source per Account keeps them apart (ADR-0003).
+    # Not schemas.account_key, which matches one Account across the two Sources
+    account_ref: Tuple[str, str]
     own_account: bool  # Money moved between two of your own Accounts, so it's flagged when unpaired
 
 
@@ -107,7 +108,7 @@ def plaid_candidates(responses: List[dict]) -> List[Candidate]:
             # Plaid amounts are positive for money out on every Account kind, unlike the Displayed amount
             side = movement_side(tx.transaction_id, institution, account.label, tx.date, tx.name, money_out=tx.amount)
             candidates.append(Candidate(
-                side=side, account_key=(institution, tx.account_id), own_account=is_own_account_movement(tx, account, side.direction),
+                side=side, account_ref=(institution, tx.account_id), own_account=is_own_account_movement(tx, account, side.direction),
             ))
     return candidates
 
@@ -129,7 +130,7 @@ def download_candidates(downloads: Sequence[AccountSummary]) -> List[Candidate]:
                 f"{summary.institution} {summary.account_name} #{index}", summary.institution, summary.account_name,
                 date.fromisoformat(tx.transaction_date), tx.description, money_out,
             )
-            candidates.append(Candidate(side=side, account_key=(summary.institution, summary.account_name), own_account=True))
+            candidates.append(Candidate(side=side, account_ref=(summary.institution, summary.account_name), own_account=True))
     return candidates
 
 
