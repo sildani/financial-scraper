@@ -20,8 +20,22 @@ from src.downloads import Coverage, download
 from src.plaid_client import FailedLink, RelinkCheck
 from src.schemas import SpendingCategory, Transaction
 from tests.test_assisted_downloads import START, FakeUser, lands, tartan
+from tests.test_linked_movements import (
+    CHECKING,
+    download_side,
+    flagged,
+    pairs,
+    pfc,
+    side,
+)
 from tests.test_plaid_client import FakeResponse, plaid_error
-from tests.test_plaid_transformer import EXPORTED_ON, WINDOW, account, link_response
+from tests.test_plaid_transformer import (
+    EXPORTED_ON,
+    WINDOW,
+    account,
+    link_response,
+    transaction,
+)
 from tests.test_sheets import FakeSpreadsheet
 
 DAY_S = 24 * 60 * 60
@@ -98,9 +112,10 @@ class FlagCombinationTest(unittest.TestCase):
 
 class FakeLinksClient:
     """Plaid for an Export: access tokens in failing raise that Plaid error code, every other
-    returns one Account and no Transactions; /item/get names each Link's Institution from institutions."""
-    def __init__(self, failing, institutions):
-        self.failing, self.institutions = failing, institutions
+    returns accounts (one credit card by default) with transactions; /item/get names each Link's Institution from institutions."""
+    def __init__(self, failing, institutions, transactions=(), accounts=None):
+        self.failing, self.institutions, self.transactions = failing, institutions, list(transactions)
+        self.accounts = accounts or [account()]
 
     def item_get(self, request):
         return {"item": {"item_id": "item-1", "institution_id": "ins_1", "institution_name": self.institutions[request.access_token]}}
@@ -108,7 +123,7 @@ class FakeLinksClient:
     def transactions_get(self, request):
         if request.access_token in self.failing:
             raise plaid_error(self.failing[request.access_token])
-        return FakeResponse({**link_response([account()], []), "total_transactions": 0})
+        return FakeResponse({**link_response(self.accounts, self.transactions), "total_transactions": len(self.transactions)})
 
 
 class PlaidPartialExportTest(unittest.TestCase):
@@ -134,11 +149,12 @@ class FakeAdapter:
     """A vendor's adapter for First Tartan Bank: a file belongs to an Account when its name holds the Account's
     last four digits, and parsing gives one 20.00 Groceries purchase, or raises for a file named in failing.
     A file spans the whole Export window unless spans gives its (start, end) by name, and its page is url.
-    Its Balance is 500.00, or None for a file named in no_balance."""
+    Its Balance is 500.00, or None for a file named in no_balance. A file named in extra also gives those Transactions."""
     institution = "First Tartan Bank"
 
-    def __init__(self, failing=(), spans=None, url=None, no_balance=()):
+    def __init__(self, failing=(), spans=None, url=None, no_balance=(), extra=None):
         self.failing, self.spans, self.url, self.no_balance, self.parsed = failing, spans or {}, url, no_balance, []
+        self.extra = extra or {}
 
     def fetch(self, window, account):
         return Fetch(url=self.url, instructions="Download it")
@@ -155,7 +171,8 @@ class FakeAdapter:
             amount=20.00, category=SpendingCategory.GROCERIES, spend_amount=20.00,
         )
         start, end = self.spans.get(file.name, (window.start, window.end))
-        return download(account, Coverage(start=start, end=end), [purchase], window, None if file.name in self.no_balance else 500.00)
+        transactions = [purchase, *self.extra.get(file.name, [])]
+        return download(account, Coverage(start=start, end=end), transactions, window, None if file.name in self.no_balance else 500.00)
 
 
 def export(accounts, input_files, adapter=None, tokens=None, client=None, assist=None, skip_downloads=False):
@@ -233,6 +250,51 @@ class UnifiedExportTest(unittest.TestCase):
     def test_no_export_is_written_when_nothing_could_be_fetched(self):
         result, spreadsheet, _ = export([tartan("3333")], [])
         self.assertEqual((spreadsheet.tabs, result.tabs, result.summaries), ({}, [], []))
+
+
+class LinkedMovementsTest(unittest.TestCase):
+    CARD_SIDE = transaction("PAYMENT THANK YOU", amount=-500.00, date=date(2026, 10, 3), personal_finance_category=pfc("TRANSFER_IN_OTHER_TRANSFER_IN"))
+
+    def export_with(self, accounts, extra, plaid_transactions=(), plaid_accounts=None):
+        """An export of accounts, each from its tartan-<last4>.csv in input/, with extra Transactions by file name."""
+        client = FakeLinksClient(
+            failing={}, institutions={"access-platypus": "First Platypus Bank"}, transactions=plaid_transactions, accounts=plaid_accounts,
+        )
+        files = [f"input/tartan-{account.last4}.csv" for account in accounts]
+        tokens = {"item-platypus": "access-platypus"} if plaid_transactions else None
+        return export(accounts, files, adapter=FakeAdapter(extra=extra), tokens=tokens, client=client)
+
+    def test_a_card_payment_from_a_download_account_to_a_plaid_card_is_paired(self):
+        result, spreadsheet, lines = self.export_with(
+            [tartan("3333", kind="deposit")], {"tartan-3333.csv": [download_side("PAYMENT TO CARD 9496", -500.00, SpendingCategory.PAYMENTS_CREDITS)]},
+            plaid_transactions=[self.CARD_SIDE],
+        )
+        assert result.movements
+        self.assertEqual(pairs(result.movements), [("PAYMENT TO CARD 9496", "PAYMENT THANK YOU")])
+        self.assertEqual(flagged(result.movements), [])
+        self.assertEqual(spreadsheet.tabs["LinkedMovements"].rows[1][:2], ["Paired", 500.00])
+        self.assertIn("Linked Movements: 1 paired, 0 unpaired", lines)
+
+    def test_a_run_with_no_link_still_pairs_its_download_accounts(self):
+        result, spreadsheet, _ = self.export_with([tartan("3333", kind="deposit"), tartan("2222")], {
+            "tartan-3333.csv": [download_side("PAYMENT TO CARD 2222", -500.00, SpendingCategory.PAYMENTS_CREDITS)],
+            "tartan-2222.csv": [download_side("PAYMENT RECEIVED", -500.00, SpendingCategory.PAYMENTS_CREDITS)],
+        })
+        assert result.movements
+        self.assertEqual(pairs(result.movements), [("PAYMENT TO CARD 2222", "PAYMENT RECEIVED")])
+        self.assertIn("LinkedMovements", spreadsheet.tabs)
+
+    def test_a_card_payment_toward_a_balance_only_account_stays_unpaired(self):
+        # A Balance-only Account takes no Transactions, so its file's side of the payment isn't there to pair with
+        closed_card = tartan("2222").model_copy(update={"balance_only": True})
+        payment = side("PAYMENT TO TARTAN CARD", "acc-checking", 500.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")
+        result, _, _ = self.export_with(
+            [closed_card], {"tartan-2222.csv": [download_side("PAYMENT RECEIVED", -500.00, SpendingCategory.PAYMENTS_CREDITS)]},
+            plaid_transactions=[payment], plaid_accounts=[CHECKING],
+        )
+        assert result.movements
+        self.assertEqual(pairs(result.movements), [])
+        self.assertEqual(flagged(result.movements), ["PAYMENT TO TARTAN CARD"])
 
 
 class CoverageTest(unittest.TestCase):

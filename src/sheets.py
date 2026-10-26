@@ -43,7 +43,7 @@ def export_to_sheet(summaries: list[AccountSummary], movements: LinkedMovements 
     - Summary_YYYYMMDDHHMMSS
     - Details_YYYYMMDDHHMMSS
     - Analysis_YYYYMMDDHHMMSS
-    - LinkedMovements_YYYYMMDDHHMMSS, only when movements are given (some Link was fetched)
+    - LinkedMovements_YYYYMMDDHHMMSS, only when movements are given (some Account was exported)
     A Partial Export names what is missing (each Link, then each Download Account), then each Download Account whose
     Coverage stops short, in a banner atop Summary and Analysis.
     Returns the names of the tabs it wrote.
