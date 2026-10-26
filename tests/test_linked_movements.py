@@ -1,8 +1,12 @@
 import unittest
 from datetime import date
 
+from src.download_accounts import DownloadAccount
+from src.downloads import Coverage, download
 from src.linked_movements import pair_linked_movements
 from src.plaid_transformer import summarize_link
+from src.schemas import AccountSummary, SpendingCategory, Transaction
+from tests.test_assisted_downloads import tartan
 from tests.test_plaid_transformer import (
     EXPORTED_ON,
     WINDOW,
@@ -24,6 +28,23 @@ CARD = account(account_id="acc-card", name="Plaid Credit Card", mask="9496", typ
 
 def side(name, account_id, amount, category, day=2):
     return transaction(name, account_id=account_id, amount=amount, date=date(2026, 10, day), personal_finance_category=pfc(category))
+
+
+def downloaded(account: DownloadAccount, *transactions: Transaction) -> AccountSummary:
+    """A Download Account's file over the whole window, as the Export takes it."""
+    return download(account, Coverage(start=WINDOW.start, end=WINDOW.end), list(transactions), WINDOW).summary
+
+
+def download_side(description, amount, category, day=2) -> Transaction:
+    """A Download Transaction; amount is its Displayed amount."""
+    return Transaction(
+        transaction_date=date(2026, 10, day).isoformat(), description=description, clean_merchant=description,
+        amount=amount, category=category,
+    )
+
+
+TARTAN_CARD = tartan("2222")
+TARTAN_CHECKING = tartan("3333", kind="deposit")
 
 
 def pairs(movements):
@@ -151,6 +172,56 @@ class PairingTest(unittest.TestCase):
             ("KESTREL AUTO FINANCE PAYMENT", "PAYMENT RECEIVED THANK YOU"),
         ])
         self.assertEqual(flagged(movements), ["WOMBAT CARD E-PAYMENT"])
+
+
+class CrossSourcePairingTest(unittest.TestCase):
+    def test_card_payment_from_a_plaid_account_to_a_download_account_is_paired(self):
+        movements = pair_linked_movements(
+            [link_response([CHECKING], [side("PAYMENT TO TARTAN CARD", "acc-checking", 500.00, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT")])],
+            [downloaded(TARTAN_CARD, download_side("PAYMENT RECEIVED", -500.00, SpendingCategory.PAYMENTS_CREDITS))],
+        )
+        self.assertEqual(pairs(movements), [("PAYMENT TO TARTAN CARD", "PAYMENT RECEIVED")])
+        self.assertEqual(flagged(movements), [])
+        received = movements.paired[0][1]
+        self.assertEqual((received.institution, received.account_name), ("First Tartan Bank", "••2222"))
+
+    def test_internal_transfer_from_a_download_account_to_a_plaid_account_is_paired(self):
+        movements = pair_linked_movements(
+            [link_response([SAVINGS], [side("ONLINE TRANSFER FROM TARTAN", "acc-savings", -300.00, "TRANSFER_IN_ACCOUNT_TRANSFER", day=3)])],
+            [downloaded(TARTAN_CHECKING, download_side("TRANSFER TO SAVINGS", -300.00, SpendingCategory.PAYMENTS_CREDITS, day=1))],
+        )
+        self.assertEqual(pairs(movements), [("TRANSFER TO SAVINGS", "ONLINE TRANSFER FROM TARTAN")])
+        self.assertEqual(flagged(movements), [])
+
+    def test_loan_payment_from_a_download_account_to_a_plaid_loan_is_paired(self):
+        movements = pair_linked_movements(
+            [link_response([AUTO_LOAN], [side("PAYMENT RECEIVED THANK YOU", "acc-auto", -200.00, "TRANSFER_IN_OTHER_TRANSFER_IN")])],
+            [downloaded(TARTAN_CHECKING, download_side("KESTREL AUTO FINANCE", -200.00, SpendingCategory.MORTGAGE_LOANS))],
+        )
+        self.assertEqual(pairs(movements), [("KESTREL AUTO FINANCE", "PAYMENT RECEIVED THANK YOU")])
+        self.assertEqual(flagged(movements), [])
+
+    def test_card_payment_between_two_download_accounts_is_paired(self):
+        movements = pair_linked_movements([], [
+            downloaded(TARTAN_CHECKING, download_side("PAYMENT TO CARD 2222", -75.00, SpendingCategory.PAYMENTS_CREDITS)),
+            downloaded(TARTAN_CARD, download_side("PAYMENT RECEIVED", -75.00, SpendingCategory.PAYMENTS_CREDITS)),
+        ])
+        self.assertEqual(pairs(movements), [("PAYMENT TO CARD 2222", "PAYMENT RECEIVED")])
+
+    def test_download_spending_is_never_a_side(self):
+        movements = pair_linked_movements(
+            [link_response([CHECKING], [side("ONLINE TRANSFER OUT", "acc-checking", 25.00, "TRANSFER_OUT_ACCOUNT_TRANSFER")])],
+            [downloaded(TARTAN_CARD, download_side("Pinecone Market", -25.00, SpendingCategory.GROCERIES))],
+        )
+        self.assertEqual(pairs(movements), [])
+
+    def test_an_unpaired_download_side_is_flagged(self):
+        movements = pair_linked_movements([], [
+            downloaded(TARTAN_CARD, download_side("PAYMENT RECEIVED", -500.00, SpendingCategory.PAYMENTS_CREDITS)),
+            downloaded(TARTAN_CHECKING, download_side("KESTREL AUTO FINANCE", -200.00, SpendingCategory.MORTGAGE_LOANS)),
+        ])
+        self.assertEqual(flagged(movements), ["KESTREL AUTO FINANCE", "PAYMENT RECEIVED"])
+        self.assertEqual([s.direction for s in movements.unpaired], ["paid", "received"])
 
 
 class UnpairedFlaggingTest(unittest.TestCase):

@@ -81,7 +81,7 @@ def run_hosted_link[T](hosted_link_url: str, poll: Callable[[], T | None]):
 
 class Export(BaseModel):
     fetched: FetchedLinks
-    movements: LinkedMovements | None = None  # None when no Link could be fetched
+    movements: LinkedMovements | None = None  # None when no Account could be exported
     summaries: List[AccountSummary] = []
     missing: List[str] = []  # Each failed Link, then each missing Download Account, as output names them
     short: List[str] = []  # Each Download Account whose Coverage stops short, as output names it
@@ -103,20 +103,6 @@ def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: E
         reason = "needs re-linking (run --relink)" if link.needs_relink else f"failed with {link.error_code}; try again later"
         print(f"   ✗ {link.label} {reason}")
 
-    summaries, movements = [], None
-    if responses:
-        # Card Payments and Internal Transfers cross Links, so pair over every Link at once
-        movements = pair_linked_movements(responses)
-        print(f"\nLinked Movements: {len(movements.paired)} paired, {len(movements.unpaired)} unpaired")
-        for side in movements.unpaired:
-            print(f"   ! Unpaired: {side.institution} ({side.account_name}) {side.date} {side.description} {side.amount:,.2f}")
-
-        # Spend depends on Linked Movements, so summarize only once they're paired
-        for response in responses:
-            for summary in summarize_link(response, window, movements, exported_on or date.today()):
-                summaries.append(summary)
-                print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
-
     on_links = accounts_on_links(responses)
     if skip_downloads:
         # Even input/ isn't looked at: recognizing a Statement there would call Gemini
@@ -128,7 +114,22 @@ def run_export(tokens: dict, download_accounts: List[DownloadAccount], window: E
         if download_accounts:
             print(f"\nFetching Downloads (a matching file in {INPUT_DIR.name}/ is used first)...")
         downloads = fetch_downloads(download_accounts, input_files, window, adapters or all_adapters(), assist=assist, on_links=on_links)
-    summaries += [download.summary for download in downloads.downloads]
+    download_summaries = [download.summary for download in downloads.downloads]
+
+    summaries, movements = [], None
+    if responses or download_summaries:
+        # Card Payments and Internal Transfers cross Links and Sources, so pair over every Account at once
+        movements = pair_linked_movements(responses, download_summaries)
+        print(f"\nLinked Movements: {len(movements.paired)} paired, {len(movements.unpaired)} unpaired")
+        for side in movements.unpaired:
+            print(f"   ! Unpaired: {side.institution} ({side.account_name}) {side.date} {side.description} {side.amount:,.2f}")
+
+        # Spend depends on Linked Movements, so summarize only once they're paired
+        for response in responses:
+            for summary in summarize_link(response, window, movements, exported_on or date.today()):
+                summaries.append(summary)
+                print(f"   ✓ {summary.institution} ({summary.account_name}): {len(summary.transactions)} transactions")
+    summaries += download_summaries
 
     missing = [link.label for link in fetched.failed] + [account.label for account in downloads.missing]
     tabs = []

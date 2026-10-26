@@ -9,7 +9,7 @@ from src.assisted_downloads import Assist, Fetch
 from src.download_accounts import DownloadAccount
 from src.downloads import Coverage, FetchedDownloads, download, fetch_downloads
 from src.export_window import ExportWindow
-from src.schemas import SpendingCategory, Transaction
+from src.schemas import AccountKind, SpendingCategory, Transaction
 
 WINDOW = ExportWindow(start=date(2026, 9, 18), end=date(2026, 10, 19))
 START = 1_790_000_000.0  # 2026-09-21, in seconds since the epoch
@@ -38,8 +38,8 @@ class FakeAdapter:
         return download(account, Coverage(start=window.start, end=window.end), [purchase], window, 500.00)
 
 
-def tartan(last4: str) -> DownloadAccount:
-    return DownloadAccount(adapter="fake", institution="First Tartan Bank", last4=last4, kind="liability")
+def tartan(last4: str, kind: AccountKind = "liability") -> DownloadAccount:
+    return DownloadAccount(adapter="fake", institution="First Tartan Bank", last4=last4, kind=kind)
 
 
 def tartan_file(last4: str) -> str:
