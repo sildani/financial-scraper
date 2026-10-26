@@ -11,8 +11,15 @@ from unittest import mock
 from pydantic_ai.exceptions import ModelHTTPError, UserError
 
 from src import llm
-from src.llm import call_gemini_with_retries, process_statement_pdf
-from src.schemas import AccountSummary
+from src.llm import (
+    AssignedCategory,
+    CategoryHint,
+    DownloadCategories,
+    call_gemini_with_retries,
+    categorize_download,
+    process_statement_pdf,
+)
+from src.schemas import AccountSummary, SpendingCategory
 from src.utils import compute_md5
 
 
@@ -110,6 +117,91 @@ class ParseWithoutGeminiKeyTest(unittest.TestCase):
         with self.assertRaisesRegex(UserError, "GOOGLE_API_KEY"):
             self.parsed()
         self.assertEqual([file.name for file in self.cache_dir.iterdir()], ["statement.pdf"])
+
+
+HINTS = [
+    CategoryHint(description="PINECONE MARKET #12", vendor_category="Groceries", is_money_out=True),
+    CategoryHint(description="PAYMENT THANK YOU", vendor_category="Payment", is_money_out=False),
+    CategoryHint(description="KNITTING CIRCLE SUPPLY", vendor_category=None, is_money_out=True),
+]
+
+
+class FakeGemini:
+    """Gemini's answer to a Download's Categories prompt, recording each prompt it's asked."""
+    def __init__(self, *assigned: tuple[int, SpendingCategory]):
+        self.answer = DownloadCategories(categories=[AssignedCategory(index=i, category=c) for i, c in assigned])
+        self.prompts: list[str] = []
+
+    def __call__(self, prompt: str) -> DownloadCategories:
+        self.prompts.append(prompt)
+        return self.answer
+
+
+class CategorizeDownloadTest(unittest.TestCase):
+    def setUp(self):
+        self.cache_dir = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.enterContext(mock.patch.object(llm, "CACHE_DIR", self.cache_dir))
+        self.csv = self.cache_dir / "download.csv"
+        self.csv.write_text("Date,Description,Category,Amount\n")
+        self.gemini = FakeGemini(
+            (2, SpendingCategory.OTHER), (0, SpendingCategory.GROCERIES), (1, SpendingCategory.PAYMENTS_CREDITS),
+        )
+
+    def categorized(self, gemini=None, force_reprocess=False):
+        """categorize_download over self.csv's HINTS, without printing."""
+        with contextlib.redirect_stdout(io.StringIO()):
+            return categorize_download(str(self.csv), HINTS, "liability", force_reprocess=force_reprocess, ask=gemini or self.gemini)
+
+    def test_one_gemini_call_per_download_gives_each_row_its_category_in_order(self):
+        self.assertEqual(self.categorized(), [
+            SpendingCategory.GROCERIES, SpendingCategory.PAYMENTS_CREDITS, SpendingCategory.OTHER,
+        ])
+        self.assertEqual(len(self.gemini.prompts), 1)
+
+    def test_the_prompt_carries_each_rows_description_category_hint_and_amount_sign_and_the_account_kind(self):
+        self.categorized()
+        prompt = self.gemini.prompts[0]
+        for expected in (
+            '"description": "PINECONE MARKET #12"', '"vendor_category": "Groceries"', '"is_money_out": true',
+            '"description": "PAYMENT THANK YOU"', '"is_money_out": false', '"vendor_category": null', "liability",
+        ):
+            self.assertIn(expected, prompt)
+
+    def test_a_transaction_gemini_leaves_out_is_other(self):
+        partial = FakeGemini((0, SpendingCategory.GROCERIES), (7, SpendingCategory.TRAVEL))
+        self.assertEqual(self.categorized(partial), [SpendingCategory.GROCERIES, SpendingCategory.OTHER, SpendingCategory.OTHER])
+
+    def test_an_unavailable_gemini_is_retried(self):
+        answers = flaky(http_error(), self.gemini.answer)
+        with mock.patch.object(llm, "GEMINI_RETRY_BASE_DELAY_S", 0):
+            self.assertEqual(self.categorized(lambda prompt: answers())[0], SpendingCategory.GROCERIES)
+        self.assertEqual(answers.count, 2)
+
+    def test_a_download_with_no_transactions_asks_gemini_nothing(self):
+        gemini = FakeGemini()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(categorize_download(str(self.csv), [], "deposit", ask=gemini), [])
+        self.assertEqual(gemini.prompts, [])
+
+    def test_a_second_run_over_the_same_file_makes_no_gemini_call(self):
+        first = self.categorized()
+        again = FakeGemini()
+        self.assertEqual(self.categorized(again), first)
+        self.assertEqual(again.prompts, [])
+
+    def test_force_asks_gemini_again_and_caches_its_new_answer(self):
+        self.categorized()
+        changed = FakeGemini((0, SpendingCategory.RESTAURANTS_FAST_FOOD))
+        self.assertEqual(self.categorized(changed, force_reprocess=True)[0], SpendingCategory.RESTAURANTS_FAST_FOOD)
+        self.assertEqual(len(changed.prompts), 1)
+        self.assertEqual(self.categorized(FakeGemini())[0], SpendingCategory.RESTAURANTS_FAST_FOOD)
+
+    def test_a_changed_file_is_asked_about_again(self):
+        self.categorized()
+        self.csv.write_text("Date,Description,Category,Amount\n2026-10-01,PINECONE MARKET #12,Groceries,-1.00\n")
+        changed = FakeGemini()
+        self.categorized(changed)
+        self.assertEqual(len(changed.prompts), 1)
 
 
 class StatementSchemaTest(unittest.TestCase):

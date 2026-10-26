@@ -8,7 +8,8 @@ from src.adapters.statement import StatementAdapter
 from src.download_accounts import DownloadAccount
 from src.downloads import Adapter, Coverage
 from src.export_window import ExportWindow
-from src.schemas import AccountSummary, ParsedTransaction, SpendingCategory
+from src.llm import CategoryHint
+from src.schemas import AccountKind, AccountSummary, ParsedTransaction, SpendingCategory
 
 FIXTURES = Path(__file__).parent / "fixtures" / "downloads"
 WINDOW = ExportWindow(start=date(2026, 9, 18), end=date(2026, 10, 19))
@@ -26,7 +27,32 @@ class ContractCase(NamedTuple):
     balance_as_of: date  # The file's last date, unclipped by the window
 
 
-GINGHAM = FirstGinghamAdapter()
+# Each fixture row's Category as a fake Gemini assigns it, whatever the vendor's own column says
+GEMINI_CATEGORIES = {
+    "PINECONE MARKET #12": SpendingCategory.GROCERIES,
+    "BEAN COUNTER COFFEE": SpendingCategory.RESTAURANTS_FAST_FOOD,
+    "PINECONE MARKET #12 RETURN": SpendingCategory.GROCERIES,
+    "PAYMENT THANK YOU": SpendingCategory.PAYMENTS_CREDITS,
+    "KNITTING CIRCLE SUPPLY": SpendingCategory.OTHER,
+    "PAYROLL WIDGETCO": SpendingCategory.INCOME_DEPOSITS,
+    "HOMESTEAD RENTALS": SpendingCategory.OTHER,
+    "CARD PAYMENT GINGHAM": SpendingCategory.PAYMENTS_CREDITS,
+    "CITY WATER WORKS": SpendingCategory.UTILITIES_SUBSCRIPTIONS,
+}
+
+
+class FakeCategorize:
+    """categorize_download as a fake Gemini answers it, from categories, recording each call."""
+    def __init__(self, categories: dict[str, SpendingCategory] = GEMINI_CATEGORIES):
+        self.categories = categories
+        self.calls: list[tuple[str, list[CategoryHint], AccountKind, bool]] = []
+
+    def __call__(self, path: str, hints: list[CategoryHint], account_kind: AccountKind, force_reprocess: bool = False) -> list[SpendingCategory]:
+        self.calls.append((path, hints, account_kind, force_reprocess))
+        return [self.categories[hint.description] for hint in hints]
+
+
+GINGHAM = FirstGinghamAdapter(categorize=FakeCategorize())
 
 
 def gemini_statement(path, force_reprocess=False) -> AccountSummary:
@@ -141,6 +167,46 @@ class AdapterContractTest(unittest.TestCase):
                 self.assertTrue(case.adapter.recognizes(case.file, case.account))
                 self.assertFalse(case.adapter.recognizes(case.file, other_account))
                 self.assertFalse(case.adapter.recognizes(FIXTURES / "not_gingham.csv", case.account))
+
+
+class FirstGinghamCategoriesTest(unittest.TestCase):
+    ACCOUNT = DownloadAccount(adapter="first_gingham", institution=GINGHAM.institution, last4="4321", kind="liability")
+    FILE = FIXTURES / "first_gingham_card.csv"
+
+    def test_gemini_is_asked_about_every_posted_row_in_the_file_with_its_category_hint_and_amount_sign(self):
+        categorize = FakeCategorize()
+        FirstGinghamAdapter(categorize=categorize).parse(self.FILE, self.ACCOUNT, WINDOW)
+        [(path, hints, account_kind, force)] = categorize.calls
+        self.assertEqual((path, account_kind, force), (str(self.FILE), "liability", False))
+        # Rows outside the window too, so the cache holds for any window; never the pending one
+        self.assertEqual(hints, [
+            CategoryHint(description="PINECONE MARKET #12", vendor_category="Groceries", is_money_out=True),
+            CategoryHint(description="PINECONE MARKET #12", vendor_category="Groceries", is_money_out=True),
+            CategoryHint(description="BEAN COUNTER COFFEE", vendor_category="Dining", is_money_out=True),
+            CategoryHint(description="PINECONE MARKET #12 RETURN", vendor_category="Groceries", is_money_out=False),
+            CategoryHint(description="PAYMENT THANK YOU", vendor_category="Payment", is_money_out=False),
+            CategoryHint(description="KNITTING CIRCLE SUPPLY", vendor_category="Hobbies", is_money_out=True),
+        ])
+
+    def test_each_transactions_category_spend_and_income_follow_gemini_not_the_vendors_column(self):
+        # Gemini reads the vendor's 'Dining' and 'Payment' rows otherwise than a fixed mapping would
+        categories = GEMINI_CATEGORIES | {"BEAN COUNTER COFFEE": SpendingCategory.GROCERIES, "PAYMENT THANK YOU": SpendingCategory.INCOME_DEPOSITS}
+        transactions = FirstGinghamAdapter(categorize=FakeCategorize(categories)).parse(self.FILE, self.ACCOUNT, WINDOW).summary.transactions
+        self.assertEqual(
+            [(tx.description, tx.category, tx.spend(), tx.income()) for tx in transactions],
+            [
+                ("PINECONE MARKET #12", SpendingCategory.GROCERIES, 60.00, None),
+                ("BEAN COUNTER COFFEE", SpendingCategory.GROCERIES, 5.25, None),
+                ("PINECONE MARKET #12 RETURN", SpendingCategory.GROCERIES, -12.00, None),
+                ("PAYMENT THANK YOU", SpendingCategory.INCOME_DEPOSITS, None, 250.00),
+                ("KNITTING CIRCLE SUPPLY", SpendingCategory.OTHER, 33.75, None),
+            ],
+        )
+
+    def test_force_asks_gemini_again(self):
+        categorize = FakeCategorize()
+        FirstGinghamAdapter(categorize=categorize, force=True).parse(self.FILE, self.ACCOUNT, WINDOW)
+        self.assertTrue(categorize.calls[0][3])
 
 
 class NoBalanceTest(unittest.TestCase):
